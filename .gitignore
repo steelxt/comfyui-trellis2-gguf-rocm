@@ -1,0 +1,10 @@
+# Docker local data volumes
+models/
+input/
+output/
+user/
+
+# Temporary files and logs
+*.log
+logs.txt
+*.tmp

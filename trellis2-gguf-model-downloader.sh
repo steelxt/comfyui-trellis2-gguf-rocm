@@ -23,7 +23,7 @@ else
 fi
 echo ""
 
-$PYTHON_EXE -c '
+$PYTHON_EXE << 'EOF'
 import os, sys, requests
 
 SCRIPT_DIR = os.environ.get("COMFY_ROOT", os.getcwd())
@@ -130,4 +130,4 @@ else:
     for f in failed:
         print(f"  - {f}")
 print("=" * 50 + "\n")
-'
+EOF

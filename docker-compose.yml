@@ -1,0 +1,41 @@
+services:
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - BASE_IMAGE=rocm/pytorch:latest
+        - GPU_ARCH=gfx1200
+    image: comfyui-trellis2-gguf-rocm:latest
+    container_name: comfyui-trellis
+    restart: unless-stopped
+    ports:
+      - "8188:8188"
+    ipc: host
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    devices:
+      - "/dev/kfd:/dev/kfd"
+      - "/dev/dri:/dev/dri"
+    group_add:
+      - video
+      - render
+    environment:
+      # Use only the discrete GPU (deviceId 0, gfx1200). Avoid deviceId 1 (gfx1036, integrated).
+      - HIP_VISIBLE_DEVICES=0
+      # Force PyTorch SDPA attention backend (reliable and fast on ROCm)
+      - ATTN_BACKEND=sdpa
+      - TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
+      # Optional: override graphics version if needed by older host drivers
+      # - HSA_OVERRIDE_GFX_VERSION=12.0.0
+    volumes:
+      # Mount folders to persist models, input images, generated outputs, and user state
+      - ./models:/app/ComfyUI/models
+      - ./input:/app/ComfyUI/input
+      - ./output:/app/ComfyUI/output
+      - ./user:/app/ComfyUI/user
+      # Mount scripts for instant updates during development/testing
+      - ./entrypoint.sh:/app/entrypoint.sh
+      - ./trellis2-gguf-model-downloader.sh:/app/trellis2-gguf-model-downloader.sh

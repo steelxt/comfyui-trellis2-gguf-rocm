@@ -111,9 +111,12 @@ export ROCM_HOME="${ROCM_HOME:-/opt/rocm}"
 export HIP_HOME="${ROCM_HOME}"
 export CUDA_HOME="${ROCM_HOME}"
 export FORCE_CUDA=1
-export HCC_AMDGPU_TARGET="gfx1102"
-export AMDGPU_TARGETS="gfx1102"
-export PYTORCH_ROCM_ARCH="gfx1102"
+export HCC_AMDGPU_TARGET="${HCC_AMDGPU_TARGET:-gfx1102}"
+export AMDGPU_TARGETS="${AMDGPU_TARGETS:-gfx1102}"
+export PYTORCH_ROCM_ARCH="${PYTORCH_ROCM_ARCH:-gfx1102}"
+export GPU_ARCHS="${GPU_ARCHS:-${PYTORCH_ROCM_ARCH}}"
+
+
 
 echo -e "${green}ROCm build env:${reset}"
 echo -e "   ROCM_HOME=${ROCM_HOME}"
@@ -177,7 +180,30 @@ CUSTOM_NODES="${COMFY_ROOT}/ComfyUI/custom_nodes"
 TRELLIS_GGUF="${CUSTOM_NODES}/ComfyUI-Trellis2-GGUF"
 
 if [ -d "$TRELLIS_GGUF" ]; then rm -rf "$TRELLIS_GGUF"; fi
-git clone https://github.com/Aero-Ex/ComfyUI-Trellis2-GGUF "$TRELLIS_GGUF"
+for i in {1..5}; do git clone --depth 1 https://github.com/Aero-Ex/ComfyUI-Trellis2-GGUF "$TRELLIS_GGUF" && break || sleep 5; done
+
+echo -e "${yellow}Patching nodes.py in ComfyUI-Trellis2-GGUF for robust attention backend mapping...${reset}"
+$PYTHON_EXE -c "
+p = '${TRELLIS_GGUF}/nodes.py'
+c = open(p).read()
+c = c.replace(\"os.environ['ATTN_BACKEND'] = backend\", \"if backend in ('cuda', 'triton'): backend = 'sdpa'\\n        os.environ['ATTN_BACKEND'] = backend\\n        try:\\n            from .trellis2_gguf.modules.attention import config as attn_config\\n            attn_config.BACKEND = backend\\n        except:\\n            pass\")
+open(p, 'w').write(c)
+"
+
+echo -e "${yellow}Patching fdg_vae.py in ComfyUI-Trellis2-GGUF to support fallback _tiled_upsample...${reset}"
+$PYTHON_EXE -c "
+p = '${TRELLIS_GGUF}/trellis2_gguf/models/sc_vaes/fdg_vae.py'
+c = open(p).read()
+old = '    def set_resolution(self, resolution: int) -> None:\\n        self.resolution = resolution'
+new = '    def set_resolution(self, resolution: int) -> None:\\n        self.resolution = resolution\\n\\n    def _tiled_upsample(self, x, upsample_times: int = 4, tile_size: int = 16, overlap: int = 2, **kwargs):\\n        print(f\"[Trellis2] VAE Decoder: Tiled upsampling is not natively supported by FlexiDualGridVaeDecoder. Falling back to standard upsample.\")\\n        return self.upsample(x, upsample_times)'
+if old in c:
+    open(p, 'w').write(c.replace(old, new))
+"
+
+
+# Install ComfyUI-GGUF dependency for native GGUF loader and dequantizer support
+if [ -d "${CUSTOM_NODES}/ComfyUI-GGUF" ]; then rm -rf "${CUSTOM_NODES}/ComfyUI-GGUF"; fi
+for i in {1..5}; do git clone --depth 1 https://github.com/city96/ComfyUI-GGUF "${CUSTOM_NODES}/ComfyUI-GGUF" && break || sleep 5; done
 # Install requirements one-by-one so a single unavailable package (e.g. open3d
 # on Python 3.14) doesn't block all the others
 while IFS= read -r pkg || [ -n "$pkg" ]; do
@@ -204,7 +230,7 @@ $PYTHON_EXE -m pip install setuptools wheel ninja $PIPargs
 echo ""
 echo -e "${green}:::::::::::::: Building ${yellow}CuMesh${green} from source (ROCm)${reset}"
 if [ -d "${TMPBUILD}/CuMesh" ]; then rm -rf "${TMPBUILD}/CuMesh"; fi
-git clone --recursive https://github.com/visualbruno/CuMesh.git "${TMPBUILD}/CuMesh"
+for i in {1..5}; do git clone --depth 1 --recursive https://github.com/visualbruno/CuMesh.git "${TMPBUILD}/CuMesh" && break || sleep 5; done
 
 # Patch CuMesh for ROCm/HIP compatibility
 echo -e "${yellow}Applying ROCm patches to CuMesh...${reset}"
@@ -268,7 +294,7 @@ curl -L -o "${SITE_PACKAGES}/cumesh/remeshing.py" \
 # --- FlexGEMM (builds with HIP) ---
 echo -e "${green}:::::::::::::: Building ${yellow}FlexGEMM${green} from source (ROCm)${reset}"
 if [ -d "${TMPBUILD}/FlexGEMM" ]; then rm -rf "${TMPBUILD}/FlexGEMM"; fi
-git clone --recursive https://github.com/JeffreyXiang/FlexGEMM.git "${TMPBUILD}/FlexGEMM"
+for i in {1..5}; do git clone --depth 1 --recursive https://github.com/JeffreyXiang/FlexGEMM.git "${TMPBUILD}/FlexGEMM" && break || sleep 5; done
 $PYTHON_EXE -m pip install "${TMPBUILD}/FlexGEMM" --no-build-isolation $PIPargs
 # Patch FlexGEMM Triton config: disable TF32 on ROCm (NVIDIA-only precision format)
 FLEX_SPCONV_CFG="${SITE_PACKAGES}/flex_gemm/kernels/triton/spconv/config.py"
@@ -285,7 +311,7 @@ echo ""
 echo -e "${green}:::::::::::::: Building ${yellow}o-voxel${green} from source (ROCm)${reset}"
 TRELLIS2_SRC="${TMPBUILD}/TRELLIS.2"
 if [ -d "$TRELLIS2_SRC" ]; then rm -rf "$TRELLIS2_SRC"; fi
-git clone --depth 1 --recursive https://github.com/microsoft/TRELLIS.2.git "$TRELLIS2_SRC"
+for i in {1..5}; do git clone --depth 1 --recursive https://github.com/microsoft/TRELLIS.2.git "$TRELLIS2_SRC" && break || sleep 5; done
 # Ensure the eigen submodule is populated (needed for o-voxel build)
 if [ ! -f "${TRELLIS2_SRC}/o-voxel/third_party/eigen/Eigen/Dense" ]; then
     echo -e "${yellow}Initializing eigen submodule...${reset}"
@@ -294,6 +320,32 @@ fi
 if [ -d "${TRELLIS2_SRC}/o-voxel" ]; then
     # Remove cumesh git dependency — we already built our patched ROCm version above
     sed -i '/cumesh.*git+/d' "${TRELLIS2_SRC}/o-voxel/pyproject.toml"
+
+    # Patch o-voxel for ROCm/HIP compilation and C++11 narrowing conversion fixes
+    echo -e "${yellow}Patching o-voxel source code for ROCm compliance...${reset}"
+    
+    # 1. Rename custom float3/int3/int4 structs to o_float3/o_int3/o_int4 to avoid conflict with ROCm vector types
+    # First, cast size_t neighbor indices to int inside initializer lists to avoid C++11 narrowing conversion errors
+    sed -i 's/int4 quad_indices{i, neigh_indices\[0\], neigh_indices\[2\], neigh_indices\[1\]}/int4 quad_indices{i, (int)neigh_indices[0], (int)neigh_indices[2], (int)neigh_indices[1]}/g' "${TRELLIS2_SRC}/o-voxel/src/convert/flexible_dual_grid.cpp"
+    sed -i 's/int4 quad_indices{i, neigh_indices\[1\], neigh_indices\[5\], neigh_indices\[3\]}/int4 quad_indices{i, (int)neigh_indices[1], (int)neigh_indices[5], (int)neigh_indices[3]}/g' "${TRELLIS2_SRC}/o-voxel/src/convert/flexible_dual_grid.cpp"
+    sed -i 's/int4 quad_indices{i, neigh_indices\[0\], neigh_indices\[4\], neigh_indices\[3\]}/int4 quad_indices{i, (int)neigh_indices[0], (int)neigh_indices[4], (int)neigh_indices[3]}/g' "${TRELLIS2_SRC}/o-voxel/src/convert/flexible_dual_grid.cpp"
+
+    sed -i 's/\bfloat3\b/o_float3/g' "${TRELLIS2_SRC}/o-voxel/src/convert/flexible_dual_grid.cpp"
+    sed -i 's/\bint3\b/o_int3/g' "${TRELLIS2_SRC}/o-voxel/src/convert/flexible_dual_grid.cpp"
+    sed -i 's/\bint4\b/o_int4/g' "${TRELLIS2_SRC}/o-voxel/src/convert/flexible_dual_grid.cpp"
+    
+    # 2. Fix invalid double literal 'd' suffix compiler errors in flexible_dual_grid.cpp
+    sed -i 's/1e-6d/1e-6/g' "${TRELLIS2_SRC}/o-voxel/src/convert/flexible_dual_grid.cpp"
+    sed -i 's/0.0d/0.0/g' "${TRELLIS2_SRC}/o-voxel/src/convert/flexible_dual_grid.cpp"
+    
+    # 3. Fix C++11 initializer list narrowing conversion errors (size_t -> long) in filter_neighbor.cpp and filter_parent.cpp
+    sed -i 's/torch::zeros({N, C}/torch::zeros({(int64_t)N, (int64_t)C}/g' "${TRELLIS2_SRC}/o-voxel/src/io/filter_neighbor.cpp"
+    sed -i 's/torch::zeros({N_leaf, C}/torch::zeros({(int64_t)N_leaf, (int64_t)C}/g' "${TRELLIS2_SRC}/o-voxel/src/io/filter_parent.cpp"
+    
+    # 4. Fix C++11 initializer list narrowing conversion errors (size_type -> long) in svo.cpp
+    sed -i 's/{svo.size()}/{(int64_t)svo.size()}/g' "${TRELLIS2_SRC}/o-voxel/src/io/svo.cpp"
+    sed -i 's/{codes.size()}/{(int64_t)codes.size()}/g' "${TRELLIS2_SRC}/o-voxel/src/io/svo.cpp"
+
     $PYTHON_EXE -m pip install "${TRELLIS2_SRC}/o-voxel" --no-build-isolation $PIPargs
     # Apply Trellis2 GGUF patches to o_voxel (adds tiled_flexible_dual_grid_to_mesh)
     OVOXEL_INSTALLED="${SITE_PACKAGES}/o_voxel/convert"
@@ -312,7 +364,7 @@ echo ""
 # stubbed out because CudaRaster uses PTX inline assembly.
 echo -e "${green}:::::::::::::: Building ${yellow}nvdiffrast v0.4.0${green} from source (ROCm)${reset}"
 if [ -d "${TMPBUILD}/nvdiffrast" ]; then rm -rf "${TMPBUILD}/nvdiffrast"; fi
-git clone -b v0.4.0 https://github.com/NVlabs/nvdiffrast.git "${TMPBUILD}/nvdiffrast"
+for i in {1..5}; do git clone --depth 1 -b v0.4.0 https://github.com/NVlabs/nvdiffrast.git "${TMPBUILD}/nvdiffrast" && break || sleep 5; done
 
 echo -e "${yellow}Applying ROCm patches to nvdiffrast v0.4.0...${reset}"
 NVDR="${TMPBUILD}/nvdiffrast"
@@ -359,6 +411,9 @@ sed -i '/torch_bindings/a\                "csrc/torch/torch_rasterize_stub.cu",'
 
 # 5) Patch framework.h to use HIP includes on ROCm.
 cat > "${NVDR}/csrc/common/framework.h" << 'FWEOF'
+#ifndef NVDR_FRAMEWORK_H_GUARD
+#define NVDR_FRAMEWORK_H_GUARD
+
 #pragma once
 
 #ifdef NVDR_TORCH
@@ -369,6 +424,15 @@ cat > "${NVDR}/csrc/common/framework.h" << 'FWEOF'
 #include <ATen/hip/HIPUtils.h>
 #include <c10/hip/HIPGuard.h>
 #include <pybind11/numpy.h>
+namespace c10 { namespace hip {
+    using OptionalHIPGuardMasqueradingAsCUDA = c10::hip::OptionalHIPGuard;
+}}
+namespace at { namespace hip {
+    using OptionalHIPGuardMasqueradingAsCUDA = c10::hip::OptionalHIPGuard;
+    inline hipStream_t getCurrentHIPStreamMasqueradingAsCUDA(c10::DeviceIndex device_index = -1) {
+        return c10::hip::getCurrentHIPStream(device_index);
+    }
+}}
 #define NVDR_CHECK(COND, ERR) do { TORCH_CHECK(COND, ERR) } while(0)
 #define NVDR_CHECK_CUDA_ERROR(HIP_CALL) do { hipError_t err = HIP_CALL; TORCH_CHECK(!err, "HIP error: ", hipGetErrorString(hipGetLastError()), "[", #HIP_CALL, ";]"); } while(0)
 #else
@@ -384,6 +448,8 @@ cat > "${NVDR}/csrc/common/framework.h" << 'FWEOF'
 #endif
 
 #endif // NVDR_TORCH
+
+#endif // NVDR_FRAMEWORK_H_GUARD
 FWEOF
 
 # 6) Fix narrowing conversion error in torch_antialias.cpp (clang is stricter than nvcc)
@@ -403,8 +469,10 @@ for f in common texture; do
     fi
 done
 
-$PYTHON_EXE -m pip install "${NVDR}" --no-build-isolation $PIPargs || \
-    echo -e "${warning}WARNING: nvdiffrast v0.4.0 build failed. Some rendering features may not work.${reset}"
+$PYTHON_EXE -m pip install "${NVDR}" --no-build-isolation $PIPargs || {
+    echo -e "${red}ERROR: nvdiffrast v0.4.0 build failed.${reset}"
+    exit 1
+}
 echo ""
 
 # --- nvdiffrast GL plugin from v0.3.5 (CPU-bounce, no HIP-GL interop) ---
@@ -416,7 +484,7 @@ echo ""
 #   Readback: glGetTexImage → hipMemcpy H2D
 echo -e "${green}:::::::::::::: Building ${yellow}nvdiffrast GL plugin${green} from v0.3.5 sources (CPU-bounce)${reset}"
 if [ -d "${TMPBUILD}/nvdiffrast_gl" ]; then rm -rf "${TMPBUILD}/nvdiffrast_gl"; fi
-git clone -b v0.3.5 https://github.com/NVlabs/nvdiffrast.git "${TMPBUILD}/nvdiffrast_gl"
+for i in {1..5}; do git clone --depth 1 -b v0.3.5 https://github.com/NVlabs/nvdiffrast.git "${TMPBUILD}/nvdiffrast_gl" && break || sleep 5; done
 
 NVDR_GL="${TMPBUILD}/nvdiffrast_gl/nvdiffrast"
 NVDR_INSTALLED="${SITE_PACKAGES}/nvdiffrast"
@@ -761,6 +829,10 @@ typedef hipError_t cudaError_t;
 #include <c10/hip/HIPStream.h>
 #include <c10/hip/HIPGuard.h>
 #include <pybind11/numpy.h>
+namespace c10 { namespace cuda {
+    using CUDAStream = c10::hip::HIPStream;
+    using OptionalCUDAGuard = c10::hip::OptionalHIPGuard;
+}}
 namespace at { namespace cuda {
     using c10::cuda::OptionalCUDAGuard;
     inline c10::cuda::CUDAStream getCurrentCUDAStream(c10::DeviceIndex device_index = -1) {
@@ -1611,7 +1683,7 @@ echo ""
 # --- nvdiffrec_render (patched for ROCm/HIP) ---
 echo -e "${green}:::::::::::::: Building ${yellow}nvdiffrec_render${green} from source (ROCm)${reset}"
 if [ -d "${TMPBUILD}/nvdiffrec" ]; then rm -rf "${TMPBUILD}/nvdiffrec"; fi
-git clone -b renderutils https://github.com/JeffreyXiang/nvdiffrec.git "${TMPBUILD}/nvdiffrec"
+for i in {1..5}; do git clone --depth 1 -b renderutils https://github.com/JeffreyXiang/nvdiffrec.git "${TMPBUILD}/nvdiffrec" && break || sleep 5; done
 
 echo -e "${yellow}Applying ROCm patches to nvdiffrec_render...${reset}"
 NVREC="${TMPBUILD}/nvdiffrec"

@@ -1,0 +1,7 @@
+.git
+.gitignore
+comfy-env
+*.tmp
+*.bak
+docker-compose.yml
+Dockerfile
