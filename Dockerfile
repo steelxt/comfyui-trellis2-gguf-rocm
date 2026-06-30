@@ -66,6 +66,14 @@ ENV HSA_OVERRIDE_GFX_VERSION=12.0.0
 # (CuMesh, FlexGEMM, o-voxel, nvdiffrast, and the GL plugin) from source.
 RUN /app/install-trellis2-gguf-rocm.sh
 
+# Install triton nightly and flash-attention for ROCm
+RUN pip install --no-cache-dir --pre triton --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/
+RUN git clone https://github.com/Dao-AILab/flash-attention /app/flash-attention && \
+    cd /app/flash-attention && \
+    FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE pip install --no-cache-dir --no-build-isolation .
+
+# Patch aiter bug where it uses hipcc -v which tries to link on ROCm 7.0 and fails
+RUN sed -i 's/\[compiler, "-v"\]/\[compiler, "--version"\]/g' /opt/venv/lib/python3.12/site-packages/aiter/jit/utils/cpp_extension.py
 # Expose ComfyUI port
 EXPOSE 8188
 

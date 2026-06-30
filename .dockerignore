@@ -5,3 +5,10 @@ comfy-env
 *.bak
 docker-compose.yml
 Dockerfile
+models/
+output/
+input/
+user/
+*.glb
+*.png
+*.json

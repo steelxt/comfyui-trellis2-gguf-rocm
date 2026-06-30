@@ -234,6 +234,7 @@ open(p, 'w').write(c)
 
 echo -e "${yellow}Patching trellis2_image_to_3d.py in ComfyUI-Trellis2-GGUF to resolve CPU-GPU device mismatches for offloaded models...${reset}"
 $PYTHON_EXE -c "
+
 import re
 import os
 p = '${TRELLIS_GGUF}/trellis2_gguf/pipelines/trellis2_image_to_3d.py'
@@ -420,13 +421,279 @@ if os.path.exists(p):
         content = content.replace(old_forward, new_forward)
         open(p, 'w').write(content)
 "
+echo -e "${yellow}Patching config.py, full_attn.py, and windowed_attn.py in ComfyUI-Trellis2-GGUF for memory-efficient sliced/fallback attention...${reset}"
+TRELLIS_GGUF="$TRELLIS_GGUF" $PYTHON_EXE - << 'EOF'
+import os
+import math
 
+def patch_file(path, replacements):
+    if not os.path.exists(path):
+        return
+    content = open(path).read()
+    for old, new in replacements:
+        if old in content:
+            content = content.replace(old, new)
+    open(path, 'w').write(content)
 
+trellis_gguf = os.environ['TRELLIS_GGUF']
+
+# 1. config.py
+p_config = os.path.join(trellis_gguf, 'trellis2_gguf/modules/sparse/config.py')
+replacements_config = [
+    (
+        "if env_sparse_attn_backend is not None and env_sparse_attn_backend in ['xformers', 'flash_attn', 'flash_attn_3']:",
+        "if env_sparse_attn_backend is not None and env_sparse_attn_backend in ['xformers', 'flash_attn', 'flash_attn_3', 'sdpa', 'naive']:"
+    ),
+    (
+        "def set_attn_backend(backend: Literal['xformers', 'flash_attn']):",
+        "def set_attn_backend(backend: Literal['xformers', 'flash_attn', 'sdpa', 'naive']):"
+    )
+]
+patch_file(p_config, replacements_config)
+
+# 2. full_attn.py
+p_full = os.path.join(trellis_gguf, 'trellis2_gguf/modules/sparse/attention/full_attn.py')
+old_sdpa_varlen = """    def _sdpa_varlen(q, k, v, q_seqlen, kv_seqlen):
+        # q: [TQ, H, Cq], k: [TK, H, Cq], v: [TK, H, Cv]
+        # returns: [TQ, H, Cv]
+        outs = []
+        q_off = 0
+        kv_off = 0
+        for n in range(len(q_seqlen)):
+            qn = q_seqlen[n]
+            kn = kv_seqlen[n]
+            q_i = q[q_off:q_off + qn].transpose(0, 1)   # [H, qn, C]
+            k_i = k[kv_off:kv_off + kn].transpose(0, 1) # [H, kn, C]
+            v_i = v[kv_off:kv_off + kn].transpose(0, 1) # [H, kn, Cv]
+
+            # SDPA expects [B, heads, L, C] or [heads, L, C]. We use [1, H, L, C]
+            q_i = q_i.unsqueeze(0)  # [1, H, qn, C]
+            k_i = k_i.unsqueeze(0)  # [1, H, kn, C]
+            v_i = v_i.unsqueeze(0)  # [1, H, kn, Cv]
+
+            out_i = torch.nn.functional.scaled_dot_product_attention(
+                q_i, k_i, v_i,
+                dropout_p=0.0,
+                is_causal=False
+            )[0]  # [H, qn, Cv]
+
+            outs.append(out_i.transpose(0, 1))  # [qn, H, Cv]
+            q_off += qn
+            kv_off += kn
+
+        return torch.cat(outs, dim=0)  # [TQ, H, Cv]"""
+
+new_sdpa_varlen = """    def _sliced_sdpa(q, k, v, chunk_size=1024):
+        qn = q.size(2)
+        outs = []
+        for i in range(0, qn, chunk_size):
+            q_chunk = q[:, :, i:i+chunk_size, :]
+            out_chunk = torch.nn.functional.scaled_dot_product_attention(
+                q_chunk, k, v,
+                dropout_p=0.0,
+                is_causal=False
+            )
+            outs.append(out_chunk)
+        return torch.cat(outs, dim=2)
+
+    def _sdpa_varlen(q, k, v, q_seqlen, kv_seqlen):
+        # q: [TQ, H, Cq], k: [TK, H, Cq], v: [TK, H, Cv]
+        # returns: [TQ, H, Cv]
+        outs = []
+        q_off = 0
+        kv_off = 0
+        for n in range(len(q_seqlen)):
+            qn = q_seqlen[n]
+            kn = kv_seqlen[n]
+            q_i = q[q_off:q_off + qn].transpose(0, 1)   # [H, qn, C]
+            k_i = k[kv_off:kv_off + kn].transpose(0, 1) # [H, kn, C]
+            v_i = v[kv_off:kv_off + kn].transpose(0, 1) # [H, kn, Cv]
+
+            # SDPA expects [B, heads, L, C] or [heads, L, C]. We use [1, H, L, C]
+            q_i = q_i.unsqueeze(0)  # [1, H, qn, C]
+            k_i = k_i.unsqueeze(0)  # [1, H, kn, C]
+            v_i = v_i.unsqueeze(0)  # [1, H, kn, Cv]
+
+            if config.ATTN == 'naive':
+                out_i = _sliced_sdpa(q_i, k_i, v_i, chunk_size=1024)
+            else:
+                try:
+                    out_i = torch.nn.functional.scaled_dot_product_attention(
+                        q_i, k_i, v_i,
+                        dropout_p=0.0,
+                        is_causal=False
+                    )
+                except RuntimeError as e:
+                    if "out of memory" in str(e).lower() or "hip out of memory" in str(e).lower():
+                        torch.cuda.empty_cache()
+                        out_i = _sliced_sdpa(q_i, k_i, v_i, chunk_size=1024)
+                    else:
+                        raise e
+            out_i = out_i[0]  # [H, qn, Cv]
+
+            outs.append(out_i.transpose(0, 1))  # [qn, H, Cv]
+            q_off += qn
+            kv_off += kn
+
+        return torch.cat(outs, dim=0)  # [TQ, H, Cv]"""
+
+patch_file(p_full, [(old_sdpa_varlen, new_sdpa_varlen)])
+
+# 3. windowed_attn.py
+p_window = os.path.join(trellis_gguf, 'trellis2_gguf/modules/sparse/attention/windowed_attn.py')
+old_partition = """    elif config.ATTN == 'flash_attn':
+        attn_func_args = {
+            'cu_seqlens': torch.cat([torch.tensor([0], device=tensor.device), torch.cumsum(seq_lens, dim=0)], dim=0).int(),
+            'max_seqlen': torch.max(seq_lens)
+        }
+
+    return fwd_indices, bwd_indices, seq_lens, attn_func_args"""
+
+new_partition = """    elif config.ATTN == 'flash_attn':
+        attn_func_args = {
+            'cu_seqlens': torch.cat([torch.tensor([0], device=tensor.device), torch.cumsum(seq_lens, dim=0)], dim=0).int(),
+            'max_seqlen': torch.max(seq_lens)
+        }
+    else:
+        attn_func_args = {}
+
+    return fwd_indices, bwd_indices, seq_lens, attn_func_args"""
+
+old_self_attn = """    elif config.ATTN == 'flash_attn':
+        if 'flash_attn' not in globals():
+            import flash_attn
+        out = flash_attn.flash_attn_varlen_qkvpacked_func(qkv_feats, **attn_func_args)  # [M, H, C]
+
+    out = out[bwd_indices]      # [T, H, C]"""
+
+new_self_attn = """    elif config.ATTN == 'flash_attn':
+        if 'flash_attn' not in globals():
+            import flash_attn
+        out = flash_attn.flash_attn_varlen_qkvpacked_func(qkv_feats, **attn_func_args)  # [M, H, C]
+    elif config.ATTN in ('sdpa', 'naive'):
+        q, k, v = qkv_feats.unbind(dim=1)
+        num_windows = len(seq_lens)
+        max_len = int(seq_lens.max().item())
+        H, C = q.shape[1], q.shape[2]
+        
+        valid = torch.arange(max_len, device=q.device).unsqueeze(0) < seq_lens.unsqueeze(1)
+        
+        q_pad = torch.zeros(num_windows, max_len, H, C, dtype=q.dtype, device=q.device)
+        k_pad = torch.zeros(num_windows, max_len, H, C, dtype=k.dtype, device=k.device)
+        v_pad = torch.zeros(num_windows, max_len, H, C, dtype=v.dtype, device=v.device)
+        
+        q_pad[valid] = q
+        k_pad[valid] = k
+        v_pad[valid] = v
+        
+        q_pad = q_pad.transpose(1, 2)
+        k_pad = k_pad.transpose(1, 2)
+        v_pad = v_pad.transpose(1, 2)
+        
+        mask = valid.unsqueeze(1).unsqueeze(2)
+        
+        if config.ATTN == 'sdpa':
+            out_pad = torch.nn.functional.scaled_dot_product_attention(
+                q_pad, k_pad, v_pad, attn_mask=mask, dropout_p=0.0, is_causal=False
+            )
+        else:
+            scale = 1.0 / math.sqrt(C)
+            attn = torch.matmul(q_pad, k_pad.transpose(-2, -1)) * scale
+            attn = attn.masked_fill(~mask, float('-inf'))
+            attn = torch.softmax(attn, dim=-1)
+            attn = torch.nan_to_num(attn)
+            out_pad = torch.matmul(attn, v_pad)
+        
+        out_pad = out_pad.transpose(1, 2)
+        out = out_pad[valid]
+
+    out = out[bwd_indices]      # [T, H, C]"""
+
+old_cross_attn = """    elif config.ATTN == 'flash_attn':
+        if 'flash_attn' not in globals():
+            import flash_attn
+        out = flash_attn.flash_attn_varlen_kvpacked_func(q_feats, kv_feats,
+            cu_seqlens_q=q_attn_func_args['cu_seqlens'], cu_seqlens_k=kv_attn_func_args['cu_seqlens'],
+            max_seqlen_q=q_attn_func_args['max_seqlen'], max_seqlen_k=kv_attn_func_args['max_seqlen'],
+        )  # [M, H, C]
+
+    out = out[q_bwd_indices]      # [T, H, C]"""
+
+new_cross_attn = """    elif config.ATTN == 'flash_attn':
+        if 'flash_attn' not in globals():
+            import flash_attn
+        out = flash_attn.flash_attn_varlen_kvpacked_func(q_feats, kv_feats,
+            cu_seqlens_q=q_attn_func_args['cu_seqlens'], cu_seqlens_k=kv_attn_func_args['cu_seqlens'],
+            max_seqlen_q=q_attn_func_args['max_seqlen'], max_seqlen_k=kv_attn_func_args['max_seqlen'],
+        )  # [M, H, C]
+    elif config.ATTN in ('sdpa', 'naive'):
+        k, v = kv_feats.unbind(dim=1)
+        outs = []
+        q_off = 0
+        kv_off = 0
+        for n in range(len(q_seq_lens)):
+            qn = q_seq_lens[n].item()
+            kn = kv_seq_lens[n].item()
+            q_i = q_feats[q_off:q_off + qn].transpose(0, 1).unsqueeze(0)
+            k_i = k[kv_off:kv_off + kn].transpose(0, 1).unsqueeze(0)
+            v_i = v[kv_off:kv_off + kn].transpose(0, 1).unsqueeze(0)
+            out_i = torch.nn.functional.scaled_dot_product_attention(
+                q_i, k_i, v_i, dropout_p=0.0, is_causal=False
+            )[0]
+            outs.append(out_i.transpose(0, 1))
+            q_off += qn
+            kv_off += kn
+        out = torch.cat(outs, dim=0)
+
+    out = out[q_bwd_indices]      # [T, H, C]"""
+
+patch_file(p_window, [
+    (old_partition, new_partition),
+    (old_self_attn, new_self_attn),
+    (old_cross_attn, new_cross_attn)
+])
+
+# 4. gguf_utils.py
+p_gguf = os.path.join(trellis_gguf, 'trellis2_gguf/utils/gguf_utils.py')
+replacements_gguf = [
+    (
+        '            torch_tensor = torch.from_numpy(tensor.data)',
+        '            torch_tensor = torch.from_numpy(tensor.data).clone()'
+    )
+]
+patch_file(p_gguf, replacements_gguf)
+
+# 5. trellis2_image_to_3d.py unload synchronization
+p_image3d = os.path.join(trellis_gguf, 'trellis2_gguf/pipelines/trellis2_image_to_3d.py')
+if os.path.exists(p_image3d):
+
+    import re
+    content = open(p_image3d).read()
+    pattern = r"(def unload_[a-zA-Z0-9_]+\(self\):\s*if self\.models\['[a-zA-Z0-9_]+'\] is not None:)"
+    replacement = r"\1\n            if torch.cuda.is_available(): torch.cuda.synchronize()"
+    new_content = re.sub(pattern, replacement, content)
+    if new_content != content:
+        open(p_image3d, 'w').write(new_content)
+EOF
 
 # Install ComfyUI-GGUF dependency for native GGUF loader and dequantizer support
 if [ -d "${CUSTOM_NODES}/ComfyUI-GGUF" ]; then rm -rf "${CUSTOM_NODES}/ComfyUI-GGUF"; fi
 for i in {1..5}; do git clone --depth 1 https://github.com/city96/ComfyUI-GGUF "${CUSTOM_NODES}/ComfyUI-GGUF" && break || sleep 5; done
+
+echo -e "${yellow}Patching loader.py in ComfyUI-GGUF to clone mapped tensors on CPU...${reset}"
+CUSTOM_NODES="$CUSTOM_NODES" $PYTHON_EXE - << 'EOF'
+import os
+custom_nodes = os.environ['CUSTOM_NODES']
+p = os.path.join(custom_nodes, 'ComfyUI-GGUF/loader.py')
+c = open(p).read()
+old = 'torch_tensor = torch.from_numpy(tensor.data) # mmap'
+new = 'torch_tensor = torch.from_numpy(tensor.data).clone() # mmap (cloned to prevent segfaults on unload)'
+if old in c:
+    open(p, 'w').write(c.replace(old, new))
+EOF
+
 # Install requirements one-by-one so a single unavailable package (e.g. open3d
+
 # on Python 3.14) doesn't block all the others
 while IFS= read -r pkg || [ -n "$pkg" ]; do
     pkg=$(echo "$pkg" | xargs)  # trim whitespace
@@ -481,13 +748,14 @@ IO_CU="${TMPBUILD}/CuMesh/src/io.cu"
 if [ -f "$IO_CU" ]; then
     echo -e "${yellow}Patching CuMesh/src/io.cu to avoid broken hipMemcpy2D...${reset}"
     $PYTHON_EXE -c "
+
 import re
 p = '$IO_CU'
 content = open(p).read()
 pattern_vert = r'CUDA_CHECK\(cudaMemcpy2D\(\s*this->vertices\.ptr,\s*sizeof\(float3\),\s*vertices\.data_ptr<float>\(\),\s*sizeof\(float\)\s*\*\s*3,\s*sizeof\(float\)\s*\*\s*3,\s*num_vertices,\s*cudaMemcpyDeviceToDevice\s*\)\);'
-content = re.sub(pattern_vert, 'CUDA_CHECK(cudaMemcpy(\\\\n        this.vertices.ptr,\\\\n        vertices.data_ptr<float>(),\\\\n        num_vertices * sizeof(float3),\\\\n        cudaMemcpyDeviceToDevice\\\\n    ));', content)
+content = re.sub(pattern_vert, 'CUDA_CHECK(cudaMemcpy(\\\\n        this->vertices.ptr,\\\\n        vertices.data_ptr<float>(),\\\\n        num_vertices * sizeof(float3),\\\\n        cudaMemcpyDeviceToDevice\\\\n    ));', content)
 pattern_face = r'CUDA_CHECK\(cudaMemcpy2D\(\s*this->faces\.ptr,\s*sizeof\(int3\),\s*faces\.data_ptr<int>\(\),\s*sizeof\(int\)\s*\*\s*3,\s*sizeof\(int\)\s*\*\s*3,\s*num_faces,\s*cudaMemcpyDeviceToDevice\s*\)\);'
-content = re.sub(pattern_face, 'CUDA_CHECK(cudaMemcpy(\\\\n        this.faces.ptr,\\\\n        faces.data_ptr<int>(),\\\\n        num_faces * sizeof(int3),\\\\n        cudaMemcpyDeviceToDevice\\\\n    ));', content)
+content = re.sub(pattern_face, 'CUDA_CHECK(cudaMemcpy(\\\\n        this->faces.ptr,\\\\n        faces.data_ptr<int>(),\\\\n        num_faces * sizeof(int3),\\\\n        cudaMemcpyDeviceToDevice\\\\n    ));', content)
 open(p, 'w').write(content)
 "
 fi
@@ -1820,6 +2088,7 @@ echo -e "${yellow}Patching nvdiffrast ops.py to restore OpenGL rasterizer suppor
 NVDR_OPS="${NVDR_INSTALLED}/torch/ops.py"
 
 $PYTHON_EXE << PYEOF
+
 import re
 
 with open("${NVDR_OPS}", "r") as f:

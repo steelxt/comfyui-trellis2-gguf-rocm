@@ -41,6 +41,26 @@ This script clones the [ComfyUI-Trellis2-GGUF](https://github.com/Aero-Ex/ComfyU
 
 Sets the required ROCm environment variables (`HSA_OVERRIDE_GFX_VERSION`, `ATTN_BACKEND=sdpa`) and launches ComfyUI.
 
+## Docker Setup (Recommended)
+
+To run this in an isolated environment with native **Flash Attention** compiled for AMD GPUs, you can use the provided Docker configuration.
+
+### 1. Build and Run the Container
+
+Instead of running natively on your host OS, simply use Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+### Docker Implementation Details
+
+The `Dockerfile` and `docker-compose.yml` include several advanced optimizations for ROCm:
+- **Base Image**: Uses `rocm/pytorch:latest` and targets `gfx1200` architecture.
+- **Flash Attention**: Automatically pulls and compiles the `Dao-AILab/flash-attention` repository from source using `FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE`. This allows the workflow to use the highly memory-efficient native `flash_attn` backend instead of `sdpa`, preventing Out-of-Memory (OOM) errors at high resolutions (e.g., 1024).
+- **Aiter JIT Patch**: Includes a patch to bypass a ROCm 7.0+ linker bug in the `aiter` dependency by enforcing `--version` instead of `-v` during compiler checks.
+- **Volume Mapping**: Maps the host's `models`, `input`, `output`, and `user` directories to persist state, and mounts scripts like `entrypoint.sh` for easy development.
+
 ## What the install script patches
 
 The original Trellis2 GGUF nodes depend on several CUDA-only C++ extensions. The install script applies the following ROCm fixes at build time (no upstream changes needed):
