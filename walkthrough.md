@@ -74,3 +74,26 @@ The container build and execution have been successfully verified:
    comfyui-trellis  | [INFO] To see the GUI go to: http://0.0.0.0:8188
    ```
 5. **GGUF Loader & State Dict Fix**: Resolved the `SparseStructureFlowModel` loading mismatch error (`The size of tensor a (1536) must match the size of tensor b (864)`) by adding the `ComfyUI-GGUF` dependency custom node to the container's custom nodes. This activates the native GGUF tensor-handling modules (ops/dequant/loader) which directly assign quantized tensors and bypass PyTorch's default copy constraints, resulting in fast GPU-accelerated inference.
+6. **HIPGuardImpl Masquerade Resolution**: Resolved the `RuntimeError: HIPGuardImpl initialized with non-HIP DeviceType: cuda` crash by replacing the standard C++ device guards with PyTorch's built-in masqueraded CUDA guards (`OptionalHIPGuardMasqueradingAsCUDA` and `HIPStreamMasqueradingAsCUDA`) in both `framework.h` build-time patch templates. This ensures the extensions cleanly accept `DeviceType::CUDA` objects created under PyTorch's masqueraded ROCm backend.
+7. **Vertical Slicing and Incomplete Geometry Resolution**: Identified and resolved the root cause of the vertical slicing/incomplete mesh output on AMD ROCm (where characters were generated with only a right arm, foot, or hair).
+   - **CuMesh `hipMemcpy2D` Fix**: We patched the `CuMesh` C++/HIP extension (`src/io.cu`) to replace the broken `cudaMemcpy2D` API calls (which corrupt/drop vertices and faces during device-to-device transfers on ROCm) with standard 1D `cudaMemcpy` transfers.
+   - **Sparse Linear Layer Chunking**: We patched `linear.py` in the sparse modules (`SparseLinear`) to chunk large-N operations when $N > 524,288$ (using `chunked_apply`). This bypasses AMD's compiler instabilities/NaN overflows on large tensor operations.
+   - Together, these patches restore complete geometry generation without needing to disable mesh post-processing filters.
+8. **Legacy Monkeypatch Warnings Suppression**: Cleaned up startup warnings (`Failed to monkeypatch... No module named 'trellis2'`) by patching `__init__.py` to check if the regular `ComfyUI-Trellis2` node folder is present. If it is not (meaning the user is in standalone GGUF mode), it cleanly bypasses the monkeypatches instead of throwing python import errors, resulting in warning-free server boots.
+9. **NumPy NaN Cast Warnings Fix**: Patched `trellis2_image_to_3d.py` to sanitize all NaNs and infinities in the generated texture attributes (`attrs`) using `np.nan_to_num` before clipping and casting to `uint8`. This prevents standard python console spam during the texturing stage.
+10. **Device Mismatch Offload Bug Fix**: Resolved the `RuntimeError: Expected all tensors to be on the same device, but got mat1 is on cuda:0, different from other tensors on cpu` crash during subsequent execution stages (such as Refiner or Texturing). When models were offloaded to CPU using `move_all_to_cpu()`, the corresponding `load_*` functions checked if the models were already instantiated (`not None`) and skipped moving them back to the active GPU (`self._device`). We patched all 8 model loading functions (including `load_sparse_structure_model`, `load_shape_slat_flow_model_512`, `load_tex_slat_flow_model_512`, `load_tex_slat_decoder`, `load_shape_slat_decoder`, `load_shape_slat_flow_model_1024`, `load_tex_slat_flow_model_1024`, and `load_shape_slat_encoder`) in `trellis2_image_to_3d.py` to ensure models are always explicitly sent to `self._device` on every invocation.
+11. **Pixel Artistry JSON Workflow Conversion**: Converted the standard workflow JSON template from Pixel Artistry to use the local `_GGUF` suffixed custom nodes and disabled the `remove_inner_faces` parameter (setting it to `false` in both reconstruction nodes) to prevent the AMD ROCm compiler vertical slicing bug on the RX 9060 XT. The output is saved at [pixel_artistry_gguf.json](file:///home/steelx/Projects/comfy%20trellis%20amd/comfyui-trellis2-gguf-rocm/pixel_artistry_gguf.json).
+12. **Rembg and ONNX Runtime Dependency Resolution**: Resolved `onnxruntime` and `rembg` dependency errors during background removal processing by installing `onnxruntime` and running a forced reinstall of `rembg` inside the container. This automatically pulled in `pymatting`, `numba`, `scikit-image`, and other dependencies which were previously skipped due to pip's dependency caching constraints on pre-existing packages. We synchronized this fix into the host installer script.
+
+
+
+---
+
+## Performance Tip: Optimizing Generation Speed
+
+In the `High_Quality_GGUF.json` template, the first Dual Contouring reconstruction resolution is configured at `1024`, which generates over 5 million quads and takes **21 minutes** to simplify down to 2 million faces.
+
+To speed up execution time to **under 1 minute**:
+1. Change the reconstruction `resolution` widget value in the **Trellis2ReconstructMeshWithQuad_GGUF** (ID 41) node from `1024` to `512` (reduces generated faces count by 8x to ~600k).
+2. Set the `target_face_num` widget in the **Trellis2SimplifyMesh_GGUF** (ID 11) node to `200,000` or `500,000` instead of `2,000,000`.
+3. Set the `target_face_num` widget in the final **Trellis2SimplifyMesh_GGUF** (ID 22) node to `200,000` or `500,000`.

@@ -1347,7 +1347,7 @@
       "widgets_values": [
         "TRELLIS.2-4B",
         "GGUF Q4_K_M",
-        "sdpa",
+        "naive",
         "cuda",
         true,
         false

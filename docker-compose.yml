@@ -28,8 +28,9 @@ services:
       # Force PyTorch SDPA attention backend (reliable and fast on ROCm)
       - ATTN_BACKEND=sdpa
       - TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
-      # Optional: override graphics version if needed by older host drivers
-      # - HSA_OVERRIDE_GFX_VERSION=12.0.0
+      # Debug memory faults synchronously
+      - CUDA_LAUNCH_BLOCKING=1
+      - HIP_LAUNCH_BLOCKING=1
     volumes:
       # Mount folders to persist models, input images, generated outputs, and user state
       - ./models:/app/ComfyUI/models

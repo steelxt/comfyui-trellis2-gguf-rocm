@@ -187,6 +187,7 @@ $PYTHON_EXE -c "
 p = '${TRELLIS_GGUF}/nodes.py'
 c = open(p).read()
 c = c.replace(\"os.environ['ATTN_BACKEND'] = backend\", \"if backend in ('cuda', 'triton'): backend = 'sdpa'\\n        os.environ['ATTN_BACKEND'] = backend\\n        try:\\n            from .trellis2_gguf.modules.attention import config as attn_config\\n            attn_config.BACKEND = backend\\n        except:\\n            pass\")
+c = c.replace('[\"flash_attn\", \"xformers\", \"sdpa\", \"flash_attn_3\"]', '[\"flash_attn\", \"xformers\", \"sdpa\", \"flash_attn_3\", \"naive\"]')
 open(p, 'w').write(c)
 "
 
@@ -199,6 +200,227 @@ new = '    def set_resolution(self, resolution: int) -> None:\\n        self.res
 if old in c:
     open(p, 'w').write(c.replace(old, new))
 "
+
+echo -e "${yellow}Patching __init__.py in ComfyUI-Trellis2-GGUF to suppress legacy monkeypatch warnings...${reset}"
+$PYTHON_EXE -c "
+p = '${TRELLIS_GGUF}/__init__.py'
+c = open(p).read()
+old1 = '    print(f\"[Trellis2-GGUF] Warning: Failed to monkeypatch DinoV3ProjFeatureExtractor.forward: {e}\")'
+new1 = '    if not (isinstance(e, ImportError) and \"trellis2\" in str(e)):\\n        print(f\"[Trellis2-GGUF] Warning: Failed to monkeypatch DinoV3ProjFeatureExtractor.forward: {e}\")'
+old2 = '    print(f\"[Trellis2-GGUF] Warning: Failed to monkeypatch Trellis2ImageTo3DPipeline.get_proj_cond_shape: {e}\")'
+new2 = '    if not (isinstance(e, ImportError) and \"trellis2\" in str(e)):\\n        print(f\"[Trellis2-GGUF] Warning: Failed to monkeypatch Trellis2ImageTo3DPipeline.get_proj_cond_shape: {e}\")'
+if old1 in c: c = c.replace(old1, new1)
+if old2 in c: c = c.replace(old2, new2)
+open(p, 'w').write(c)
+"
+
+echo -e "${yellow}Patching trellis2_image_to_3d.py in ComfyUI-Trellis2-GGUF to avoid NumPy NaN cast warnings...${reset}"
+$PYTHON_EXE -c "
+p = '${TRELLIS_GGUF}/trellis2_gguf/pipelines/trellis2_image_to_3d.py'
+c = open(p).read()
+old_lines = [
+    \"base_color = np.clip(attrs[..., self.pbr_attr_layout['base_color']].cpu().numpy() * 255, 0, 255).astype(np.uint8)\",
+    \"metallic = np.clip(attrs[..., self.pbr_attr_layout['metallic']].cpu().numpy() * 255, 0, 255).astype(np.uint8)\",
+    \"roughness = np.clip(attrs[..., self.pbr_attr_layout['roughness']].cpu().numpy() * 255, 0, 255).astype(np.uint8)\",
+    \"alpha = np.clip(attrs[..., self.pbr_attr_layout['alpha']].cpu().numpy() * 255, 0, 255).astype(np.uint8)\"
+]
+if all(x in c for x in old_lines):
+    c = c.replace('mask = mask.cpu().numpy()', 'mask = mask.cpu().numpy()\\n        attrs_np = np.nan_to_num(attrs.cpu().numpy(), nan=0.0, posinf=1.0, neginf=0.0)')
+    for x in old_lines:
+        new_x = x.replace('attrs[..., self.pbr_attr_layout[', 'attrs_np[..., self.pbr_attr_layout[').replace('].cpu().numpy()', ']')
+        c = c.replace(x, new_x)
+open(p, 'w').write(c)
+"
+
+echo -e "${yellow}Patching trellis2_image_to_3d.py in ComfyUI-Trellis2-GGUF to resolve CPU-GPU device mismatches for offloaded models...${reset}"
+$PYTHON_EXE -c "
+import re
+import os
+p = '${TRELLIS_GGUF}/trellis2_gguf/pipelines/trellis2_image_to_3d.py'
+if os.path.exists(p):
+    content = open(p).read()
+    replacements = [
+        (
+            r\"def load_sparse_structure_model\(self\):[\s\S]*?self\.models\['sparse_structure_decoder'\]\.low_vram = self\.low_vram\",
+            \"def load_sparse_structure_model(self):\\n        if self.models['sparse_structure_flow_model'] is None:\\n            print('Loading Sparse Structure model ...')\\n            _path = self._sdnq_remap(os.path.join(self.path, self._pretrained_args['models']['sparse_structure_flow_model']))\\n            self.models['sparse_structure_flow_model'] = models.from_pretrained(\\n                _path,\\n                enable_gguf=getattr(self, 'enable_gguf', False),\\n                gguf_quant=getattr(self, 'gguf_quant', 'Q8_0'),\\n                precision=getattr(self, 'precision', None),\\n                enable_sdnq=getattr(self, 'enable_sdnq', False),\\n                sdnq_use_quantized_matmul=getattr(self, 'sdnq_use_quantized_matmul', True),\\n                sdnq_torch_compile=getattr(self, 'sdnq_torch_compile', False),\\n                isPixal3D=getattr(self, 'isPixal3D', False),\\n            )\\n            self.models['sparse_structure_flow_model'].eval()\\n        self.models['sparse_structure_flow_model'].to(self._device)\\n\\n        if self.models['sparse_structure_decoder'] is None:\\n            self.models['sparse_structure_decoder'] = models.from_pretrained(self._pretrained_args['models']['sparse_structure_decoder'], isPixal3D=getattr(self, 'isPixal3D', False))\\n            self.models['sparse_structure_decoder'].eval()\\n            if hasattr(self.models['sparse_structure_decoder'], 'low_vram'):\\n                self.models['sparse_structure_decoder'].low_vram = self.low_vram\\n        self.models['sparse_structure_decoder'].to(self._device)\"
+        ),
+        (
+            r\"def load_shape_slat_flow_model_512\(self\):[\s\S]*?self\.models\['shape_slat_flow_model_512'\]\.to\(self\._device\)\",
+            \"def load_shape_slat_flow_model_512(self):\\n        if self.models['shape_slat_flow_model_512'] is None:\\n            print('Loading Shape Slat Flow 512 model ...')\\n            _path = self._sdnq_remap(os.path.join(self.path, self._pretrained_args['models']['shape_slat_flow_model_512']))\\n            self.models['shape_slat_flow_model_512'] = models.from_pretrained(\\n                _path,\\n                enable_gguf=getattr(self, 'enable_gguf', False),\\n                gguf_quant=getattr(self, 'gguf_quant', 'Q8_0'),\\n                precision=getattr(self, 'precision', None),\\n                enable_sdnq=getattr(self, 'enable_sdnq', False),\\n                sdnq_use_quantized_matmul=getattr(self, 'sdnq_use_quantized_matmul', True),\\n                sdnq_torch_compile=getattr(self, 'sdnq_torch_compile', False),\\n                isPixal3D=getattr(self, 'isPixal3D', False),\\n            )\\n            self.models['shape_slat_flow_model_512'].eval()\\n        self.models['shape_slat_flow_model_512'].to(self._device)\"
+        ),
+        (
+            r\"def load_tex_slat_flow_model_512\(self\):[\s\S]*?self\.models\['tex_slat_flow_model_512'\]\.to\(self\._device\)\",
+            \"def load_tex_slat_flow_model_512(self):\\n        if 'tex_slat_flow_model_512' not in self._pretrained_args.get('models', {}):\\n            return\\n        if self.models.get('tex_slat_flow_model_512') is None:\\n            print('Loading Texture Slat Flow 512 model ...')\\n            _path = self._sdnq_remap(os.path.join(self.path, self._pretrained_args['models']['tex_slat_flow_model_512']))\\n            self.models['tex_slat_flow_model_512'] = models.from_pretrained(\\n                _path,\\n                enable_gguf=getattr(self, 'enable_gguf', False),\\n                gguf_quant=getattr(self, 'gguf_quant', 'Q8_0'),\\n                precision=getattr(self, 'precision', None),\\n                enable_sdnq=getattr(self, 'enable_sdnq', False),\\n                sdnq_use_quantized_matmul=getattr(self, 'sdnq_use_quantized_matmul', True),\\n                sdnq_torch_compile=getattr(self, 'sdnq_torch_compile', False),\\n                isPixal3D=getattr(self, 'isPixal3D', False),\\n            )\\n            self.models['tex_slat_flow_model_512'].eval()\\n        if self.models.get('tex_slat_flow_model_512') is not None:\\n            self.models['tex_slat_flow_model_512'].to(self._device)\"
+        ),
+        (
+            r\"def load_tex_slat_decoder\(self\):[\s\S]*?self\.models\['tex_slat_decoder'\]\.low_vram = self\.low_vram\",
+            \"def load_tex_slat_decoder(self):\\n        if self.models['tex_slat_decoder'] is None:\\n            print('Loading Texture Slat decoder model ...')\\n            self.models['tex_slat_decoder'] = models.from_pretrained(\\n                os.path.join(self.path, self._pretrained_args['models']['tex_slat_decoder']),\\n                precision=getattr(self, 'precision', None),\\n                isPixal3D=getattr(self, 'isPixal3D', False)\\n            )\\n            self.models['tex_slat_decoder'].eval()\\n            if hasattr(self.models['tex_slat_decoder'], 'low_vram'):\\n                self.models['tex_slat_decoder'].low_vram = self.low_vram\\n        self.models['tex_slat_decoder'].to(self._device)\"
+        ),
+        (
+            r\"def load_shape_slat_decoder\(self\):[\s\S]*?self\.models\['shape_slat_decoder'\]\.low_vram = self\.low_vram\",
+            \"def load_shape_slat_decoder(self):\\n        if self.models['shape_slat_decoder'] is None:\\n            print('Loading Shape Slat decoder model ...')\\n            self.models['shape_slat_decoder'] = models.from_pretrained(\\n                os.path.join(self.path, self._pretrained_args['models']['shape_slat_decoder']),\\n                precision=getattr(self, 'precision', None),\\n                isPixal3D=getattr(self, 'isPixal3D', False)\\n            )\\n            self.models['shape_slat_decoder'].eval()\\n            if hasattr(self.models['shape_slat_decoder'], 'low_vram'):\\n                self.models['shape_slat_decoder'].low_vram = self.low_vram\\n        self.models['shape_slat_decoder'].to(self._device)\"
+        ),
+        (
+            r\"def load_shape_slat_flow_model_1024\(self\):[\s\S]*?self\.models\['shape_slat_flow_model_1024'\]\.to\(self\._device\)\",
+            \"def load_shape_slat_flow_model_1024(self):\\n        if self.models['shape_slat_flow_model_1024'] is None:\\n            print('Loading Shape Slat Flow 1024 model ...')\\n            _path = self._sdnq_remap(os.path.join(self.path, self._pretrained_args['models']['shape_slat_flow_model_1024']))\\n            self.models['shape_slat_flow_model_1024'] = models.from_pretrained(\\n                _path,\\n                enable_gguf=getattr(self, 'enable_gguf', False),\\n                gguf_quant=getattr(self, 'gguf_quant', 'Q8_0'),\\n                precision=getattr(self, 'precision', None),\\n                enable_sdnq=getattr(self, 'enable_sdnq', False),\\n                sdnq_use_quantized_matmul=getattr(self, 'sdnq_use_quantized_matmul', True),\\n                sdnq_torch_compile=getattr(self, 'sdnq_torch_compile', False),\\n                isPixal3D=getattr(self, 'isPixal3D', False),\\n            )\\n            self.models['shape_slat_flow_model_1024'].eval()\\n        self.models['shape_slat_flow_model_1024'].to(self._device)\"
+        ),
+        (
+            r\"def load_tex_slat_flow_model_1024\(self\):[\s\S]*?self\.models\['tex_slat_flow_model_1024'\]\.to\(self\._device\)\",
+            \"def load_tex_slat_flow_model_1024(self):\\n        if self.models['tex_slat_flow_model_1024'] is None:\\n            print('Loading Texture Slat Flow 1024 model ...')\\n            _path = self._sdnq_remap(os.path.join(self.path, self._pretrained_args['models']['tex_slat_flow_model_1024']))\\n            self.models['tex_slat_flow_model_1024'] = models.from_pretrained(\\n                _path,\\n                enable_gguf=getattr(self, 'enable_gguf', False),\\n                gguf_quant=getattr(self, 'gguf_quant', 'Q8_0'),\\n                precision=getattr(self, 'precision', None),\\n                enable_sdnq=getattr(self, 'enable_sdnq', False),\\n                sdnq_use_quantized_matmul=getattr(self, 'sdnq_use_quantized_matmul', True),\\n                sdnq_torch_compile=getattr(self, 'sdnq_torch_compile', False),\\n                isPixal3D=getattr(self, 'isPixal3D', False),\\n            )\\n            self.models['tex_slat_flow_model_1024'].eval()\\n        self.models['tex_slat_flow_model_1024'].to(self._device)\"
+        ),
+        (
+            r\"def load_shape_slat_encoder\(self\):[\s\S]*?self\.models\['shape_slat_encoder'\]\.low_vram = self\.low_vram\",
+            \"def load_shape_slat_encoder(self):\\n        if self.models['shape_slat_encoder'] is None:\\n            print('Loading Shape Slat Encoder model ...')\\n            self.models['shape_slat_encoder'] = models.from_pretrained(f\\\"{self.path}/ckpts/shape_enc_next_dc_f16c32_fp16\\\", isPixal3D=getattr(self, 'isPixal3D', False))\\n            self.models['shape_slat_encoder'].eval()\\n            if hasattr(self.models['shape_slat_encoder'], 'low_vram'):\\n                self.models['shape_slat_encoder'].low_vram = self.low_vram\\n        self.models['shape_slat_encoder'].to(self._device)\"
+        )
+    ]
+    for pattern, replacement in replacements:
+            content = re.sub(pattern, replacement, content)
+    open(p, 'w').write(content)
+"
+
+
+echo -e "${yellow}Patching rope.py files in ComfyUI-Trellis2-GGUF to use real-number trig math (avoids ROCm complex number arithmetic compiler bugs)...${reset}"
+$PYTHON_EXE -c "
+import os
+
+dense_rope_path = '${TRELLIS_GGUF}/trellis2_gguf/modules/attention/rope.py'
+sparse_rope_path = '${TRELLIS_GGUF}/trellis2_gguf/modules/sparse/attention/rope.py'
+
+new_dense_rope = '''from typing import *
+import torch
+import torch.nn as nn
+
+
+class RotaryPositionEmbedder(nn.Module):
+    def __init__(
+        self,
+        head_dim: int,
+        dim: int = 3,
+        rope_freq: Tuple[float, float] = (1.0, 10000.0)
+    ):
+        super().__init__()
+        assert head_dim % 2 == 0, \"Head dim must be divisible by 2\"
+        self.head_dim = head_dim
+        self.dim = dim
+        self.rope_freq = rope_freq
+        self.freq_dim = head_dim // 2 // dim
+        self.freqs = torch.arange(self.freq_dim, dtype=torch.float32) / self.freq_dim
+        self.freqs = rope_freq[0] / (rope_freq[1] ** (self.freqs))
+
+    def _get_phases(self, indices: torch.Tensor) -> torch.Tensor:
+        self.freqs = self.freqs.to(indices.device)
+        phases = torch.outer(indices, self.freqs)
+        return phases
+
+    @staticmethod
+    def apply_rotary_embedding(x: torch.Tensor, phases: torch.Tensor) -> torch.Tensor:
+        x_reshaped = x.float().reshape(*x.shape[:-1], -1, 2)
+        x_real = x_reshaped[..., 0]
+        x_imag = x_reshaped[..., 1]
+        
+        cos_phases = torch.cos(phases).unsqueeze(-2)
+        sin_phases = torch.sin(phases).unsqueeze(-2)
+        
+        out_real = x_real * cos_phases - x_imag * sin_phases
+        out_imag = x_real * sin_phases + x_imag * cos_phases
+        
+        out_reshaped = torch.stack([out_real, out_imag], dim=-1)
+        x_embed = out_reshaped.reshape(*x.shape[:-1], -1).to(x.dtype)
+        return x_embed
+
+    def forward(self, indices: torch.Tensor) -> torch.Tensor:
+        assert indices.shape[-1] == self.dim, f\"Last dim of indices must be {self.dim}\"
+        phases = self._get_phases(indices.reshape(-1)).reshape(*indices.shape[:-1], -1)
+        if phases.shape[-1] < self.head_dim // 2:
+            padn = self.head_dim // 2 - phases.shape[-1]
+            phases = torch.cat([phases, torch.zeros(*phases.shape[:-1], padn, device=phases.device)], dim=-1)
+        return phases
+'''
+
+new_sparse_rope = '''from typing import *
+import torch
+import torch.nn as nn
+from ..basic import SparseTensor
+
+
+class SparseRotaryPositionEmbedder(nn.Module):
+    def __init__(
+        self,
+        head_dim: int,
+        dim: int = 3,
+        rope_freq: Tuple[float, float] = (1.0, 10000.0)
+    ):
+        super().__init__()
+        assert head_dim % 2 == 0, \"Head dim must be divisible by 2\"
+        self.head_dim = head_dim
+        self.dim = dim
+        self.rope_freq = rope_freq
+        self.freq_dim = head_dim // 2 // dim
+        self.freqs = torch.arange(self.freq_dim, dtype=torch.float32) / self.freq_dim
+        self.freqs = rope_freq[0] / (rope_freq[1] ** (self.freqs))
+
+    def _get_phases(self, indices: torch.Tensor) -> torch.Tensor:
+        self.freqs = self.freqs.to(indices.device)
+        phases = torch.outer(indices, self.freqs)
+        return phases
+
+    def _rotary_embedding(self, x: torch.Tensor, phases: torch.Tensor) -> torch.Tensor:
+        x_reshaped = x.float().reshape(*x.shape[:-1], -1, 2)
+        x_real = x_reshaped[..., 0]
+        x_imag = x_reshaped[..., 1]
+        
+        cos_phases = torch.cos(phases).unsqueeze(-2)
+        sin_phases = torch.sin(phases).unsqueeze(-2)
+        
+        out_real = x_real * cos_phases - x_imag * sin_phases
+        out_imag = x_real * sin_phases + x_imag * cos_phases
+        
+        out_reshaped = torch.stack([out_real, out_imag], dim=-1)
+        x_embed = out_reshaped.reshape(*x.shape[:-1], -1).to(x.dtype)
+        return x_embed
+
+    def forward(self, q: SparseTensor, k: Optional[SparseTensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        assert q.coords.shape[-1] == self.dim + 1, \"Last dimension of coords must be equal to dim+1\"
+        phases_cache_name = f'rope_phase_{self.dim}d_freq{self.rope_freq[0]}-{self.rope_freq[1]}_hd{self.head_dim}'
+        phases = q.get_spatial_cache(phases_cache_name)
+        if phases is None:
+            coords = q.coords[..., 1:]
+            phases = self._get_phases(coords.reshape(-1)).reshape(*coords.shape[:-1], -1)
+            if phases.shape[-1] < self.head_dim // 2:
+                padn = self.head_dim // 2 - phases.shape[-1]
+                phases = torch.cat([phases, torch.zeros(*phases.shape[:-1], padn, device=phases.device)], dim=-1)
+            q.register_spatial_cache(phases_cache_name, phases)
+        q_embed = q.replace(self._rotary_embedding(q.feats, phases))
+        if k is None:
+            return q_embed
+        k_embed = k.replace(self._rotary_embedding(k.feats, phases))
+        return q_embed, k_embed
+'''
+
+if os.path.exists(dense_rope_path):
+    open(dense_rope_path, 'w').write(new_dense_rope)
+if os.path.exists(sparse_rope_path):
+    open(sparse_rope_path, 'w').write(new_sparse_rope)
+"
+
+echo -e "${yellow}Patching linear.py in ComfyUI-Trellis2-GGUF to use ROCm-safe chunked linear layers...${reset}"
+$PYTHON_EXE -c "
+import os
+p = '${TRELLIS_GGUF}/trellis2_gguf/modules/sparse/linear.py'
+if os.path.exists(p):
+    content = open(p).read()
+    old_forward = '''    def forward(self, input: VarLenTensor) -> VarLenTensor:
+        if self.low_vram:
+            return input.replace(chunked_apply(super().forward, input.feats, self.chunk_size))
+        return input.replace(super().forward(input.feats))'''
+    new_forward = '''    def forward(self, input: VarLenTensor) -> VarLenTensor:
+        chunk_size = self.chunk_size if self.low_vram else 524288
+        return input.replace(chunked_apply(super().forward, input.feats, chunk_size))'''
+    if old_forward in content:
+        content = content.replace(old_forward, new_forward)
+        open(p, 'w').write(content)
+"
+
 
 
 # Install ComfyUI-GGUF dependency for native GGUF loader and dequantizer support
@@ -213,6 +435,8 @@ while IFS= read -r pkg || [ -n "$pkg" ]; do
     $PYTHON_EXE -m pip install "$pkg" --no-deps $PIPargs || \
         echo -e "${warning}WARNING: Failed to install '$pkg' — continuing...${reset}"
 done < "${TRELLIS_GGUF}/requirements.txt"
+# Install rembg and onnxruntime with dependencies (since it was installed with --no-deps above)
+$PYTHON_EXE -m pip install --force-reinstall onnxruntime rembg $PIPargs
 $PYTHON_EXE -m pip install --upgrade huggingface_hub --no-deps $PIPargs
 echo ""
 
@@ -251,6 +475,23 @@ if [ -f "$CLEAN_UP" ]; then
     # rocprim::tuple has explicit constructors — brace init {a,b,c} won't work
     sed -i 's/return {key\.x, key\.y, key\.z};/return CUMESH_TUPLE<int\&, int\&, int\&>(key.x, key.y, key.z);/' "$CLEAN_UP"
 fi
+
+# 1.5) io.cu: Replace broken cudaMemcpy2D with 1D cudaMemcpy to prevent geometry corruption on ROCm
+IO_CU="${TMPBUILD}/CuMesh/src/io.cu"
+if [ -f "$IO_CU" ]; then
+    echo -e "${yellow}Patching CuMesh/src/io.cu to avoid broken hipMemcpy2D...${reset}"
+    $PYTHON_EXE -c "
+import re
+p = '$IO_CU'
+content = open(p).read()
+pattern_vert = r'CUDA_CHECK\(cudaMemcpy2D\(\s*this->vertices\.ptr,\s*sizeof\(float3\),\s*vertices\.data_ptr<float>\(\),\s*sizeof\(float\)\s*\*\s*3,\s*sizeof\(float\)\s*\*\s*3,\s*num_vertices,\s*cudaMemcpyDeviceToDevice\s*\)\);'
+content = re.sub(pattern_vert, 'CUDA_CHECK(cudaMemcpy(\\\\n        this.vertices.ptr,\\\\n        vertices.data_ptr<float>(),\\\\n        num_vertices * sizeof(float3),\\\\n        cudaMemcpyDeviceToDevice\\\\n    ));', content)
+pattern_face = r'CUDA_CHECK\(cudaMemcpy2D\(\s*this->faces\.ptr,\s*sizeof\(int3\),\s*faces\.data_ptr<int>\(\),\s*sizeof\(int\)\s*\*\s*3,\s*sizeof\(int\)\s*\*\s*3,\s*num_faces,\s*cudaMemcpyDeviceToDevice\s*\)\);'
+content = re.sub(pattern_face, 'CUDA_CHECK(cudaMemcpy(\\\\n        this.faces.ptr,\\\\n        faces.data_ptr<int>(),\\\\n        num_faces * sizeof(int3),\\\\n        cudaMemcpyDeviceToDevice\\\\n    ));', content)
+open(p, 'w').write(content)
+"
+fi
+
 
 # 2) dtypes.cuh: Make Vec3f default constructor __host__ __device__ (not just __device__)
 #    hipcub::DeviceSegmentedReduce needs a host-callable default constructor for identity values
@@ -422,15 +663,13 @@ cat > "${NVDR}/csrc/common/framework.h" << 'FWEOF'
 #include <torch/extension.h>
 #include <ATen/hip/HIPContext.h>
 #include <ATen/hip/HIPUtils.h>
-#include <c10/hip/HIPGuard.h>
+#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
 #include <pybind11/numpy.h>
-namespace c10 { namespace hip {
-    using OptionalHIPGuardMasqueradingAsCUDA = c10::hip::OptionalHIPGuard;
-}}
 namespace at { namespace hip {
-    using OptionalHIPGuardMasqueradingAsCUDA = c10::hip::OptionalHIPGuard;
-    inline hipStream_t getCurrentHIPStreamMasqueradingAsCUDA(c10::DeviceIndex device_index = -1) {
-        return c10::hip::getCurrentHIPStream(device_index);
+    using c10::hip::OptionalHIPGuardMasqueradingAsCUDA;
+    inline c10::hip::HIPStreamMasqueradingAsCUDA getCurrentHIPStreamMasqueradingAsCUDA(c10::DeviceIndex device_index = -1) {
+        return c10::hip::getCurrentHIPStreamMasqueradingAsCUDA(device_index);
     }
 }}
 #define NVDR_CHECK(COND, ERR) do { TORCH_CHECK(COND, ERR) } while(0)
@@ -826,17 +1065,17 @@ typedef hipError_t cudaError_t;
 #define cudaMemcpyAsync hipMemcpyAsync
 #define cudaDeviceSynchronize hipDeviceSynchronize
 #include <torch/extension.h>
-#include <c10/hip/HIPStream.h>
-#include <c10/hip/HIPGuard.h>
+#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
 #include <pybind11/numpy.h>
 namespace c10 { namespace cuda {
-    using CUDAStream = c10::hip::HIPStream;
-    using OptionalCUDAGuard = c10::hip::OptionalHIPGuard;
+    using CUDAStream = c10::hip::HIPStreamMasqueradingAsCUDA;
+    using OptionalCUDAGuard = c10::hip::OptionalHIPGuardMasqueradingAsCUDA;
 }}
 namespace at { namespace cuda {
     using c10::cuda::OptionalCUDAGuard;
     inline c10::cuda::CUDAStream getCurrentCUDAStream(c10::DeviceIndex device_index = -1) {
-        return c10::hip::getCurrentHIPStream(device_index);
+        return c10::hip::getCurrentHIPStreamMasqueradingAsCUDA(device_index);
     }
     inline bool check_device(c10::ArrayRef<at::Tensor> ts) {
         if (ts.empty()) return true;

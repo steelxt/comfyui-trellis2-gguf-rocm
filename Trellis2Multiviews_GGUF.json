@@ -90,7 +90,7 @@
         3,
         0.2,
         3,
-        999999,
+        24576,
         32,
         true,
         0.1,
@@ -510,7 +510,7 @@
       "widgets_values": [
         "TRELLIS.2-4B",
         "GGUF Q4_K_M",
-        "flash_attn",
+        "sdpa",
         "cuda",
         false,
         false
