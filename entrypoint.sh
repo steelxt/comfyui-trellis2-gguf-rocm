@@ -26,6 +26,14 @@ if [ ! -f "/app/ComfyUI/models/Trellis2/pipeline.json" ]; then
     bash /app/trellis2-gguf-model-downloader.sh
 fi
 
+# Install ComfyUI-Manager if missing
+if [ ! -d "/app/ComfyUI/custom_nodes/ComfyUI-Manager" ]; then
+    echo "ComfyUI-Manager not found. Installing..."
+    git clone https://github.com/ltdrdata/ComfyUI-Manager.git /app/ComfyUI/custom_nodes/ComfyUI-Manager
+    # Manager typically installs its own requirements on boot, but we can ensure it here
+    python3 -m pip install -r /app/ComfyUI/custom_nodes/ComfyUI-Manager/requirements.txt || true
+fi
+
 # Apply dynamic memory-efficient sliced attention patches on startup
 echo "Applying custom sparse attention and naive backend patches..."
 python3 - << 'EOF'
