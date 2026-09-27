@@ -8,12 +8,12 @@
       "id": 11,
       "type": "Trellis2SimplifyMesh_GGUF",
       "pos": [
-        72.08877168242174,
-        797.4964201627158
+        58.40730973535145,
+        662.9136834689299
       ],
       "size": [
-        323.953125,
-        115.328125
+        269.9609375,
+        96.10677083333334
       ],
       "flags": {},
       "order": 9,
@@ -45,20 +45,24 @@
         }
       },
       "widgets_values": [
-        2000000,
+        300000,
         "Cumesh"
-      ]
+      ],
+      "widgets_values_named": {
+        "target_face_num": 300000,
+        "method": "Cumesh"
+      }
     },
     {
       "id": 12,
       "type": "Trellis2PreProcessImage_GGUF",
       "pos": [
-        -988.9069101425296,
-        496.77814485174173
+        -1236.9389137459457,
+        1310.7905484303697
       ],
       "size": [
-        266.078125,
-        140.65625
+        275.507421875,
+        117.21354166666667
       ],
       "flags": {},
       "order": 3,
@@ -93,20 +97,23 @@
       },
       "widgets_values": [
         25,
-        true,
-        2048
-      ]
+        true
+      ],
+      "widgets_values_named": {
+        "padding": 25,
+        "remove_background": true
+      }
     },
     {
       "id": 22,
       "type": "Trellis2SimplifyMesh_GGUF",
       "pos": [
-        1299.9968783254883,
-        742.3067667484092
+        1081.6640652712404,
+        616.9223056236744
       ],
       "size": [
-        270,
-        115.328125
+        248.9361328125,
+        96.10677083333334
       ],
       "flags": {},
       "order": 16,
@@ -138,20 +145,24 @@
         }
       },
       "widgets_values": [
-        2000000,
+        300000,
         "Cumesh"
-      ]
+      ],
+      "widgets_values_named": {
+        "target_face_num": 300000,
+        "method": "Cumesh"
+      }
     },
     {
       "id": 29,
       "type": "StringConcatenate",
       "pos": [
-        869.8975220779296,
-        1244.6512188590052
+        723.2479350649413,
+        1035.5426823825044
       ],
       "size": [
-        354.625,
-        239.328125
+        295.52083333333337,
+        199.44010416666669
       ],
       "flags": {},
       "order": 5,
@@ -189,18 +200,23 @@
         "",
         "Refined",
         "_"
-      ]
+      ],
+      "widgets_values_named": {
+        "string_a": "",
+        "string_b": "Refined",
+        "delimiter": "_"
+      }
     },
     {
       "id": 30,
       "type": "StringConcatenate",
       "pos": [
-        -142.5295391426973,
-        1440.3397829910853
+        -120.44128261891443,
+        1198.6164858259044
       ],
       "size": [
-        293.75,
-        239.328125
+        244.79166666666669,
+        199.44010416666669
       ],
       "flags": {},
       "order": 4,
@@ -238,18 +254,23 @@
         "",
         "WhiteMesh",
         ""
-      ]
+      ],
+      "widgets_values_named": {
+        "string_a": "",
+        "string_b": "WhiteMesh",
+        "delimiter": ""
+      }
     },
     {
       "id": 15,
       "type": "Trellis2ExportMesh_GGUF",
       "pos": [
-        167.21694003599845,
-        1471.469690943966
+        137.68078336333204,
+        1224.5580757866385
       ],
       "size": [
-        323.953125,
-        143.328125
+        269.9609375,
+        119.44010416666667
       ],
       "flags": {},
       "order": 12,
@@ -296,18 +317,22 @@
       "widgets_values": [
         "WhiteMesh",
         "glb"
-      ]
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "WhiteMesh",
+        "file_format": "glb"
+      }
     },
     {
       "id": 14,
       "type": "Trellis2MeshWithVoxelToTrimesh_GGUF",
       "pos": [
-        50.0257971490355,
-        1196.7920203238489
+        40.02149762419625,
+        995.6600169365407
       ],
       "size": [
-        403.765625,
-        83.328125
+        343.1353515625,
+        130
       ],
       "flags": {},
       "order": 11,
@@ -340,19 +365,28 @@
         }
       },
       "widgets_values": [
-        "90 degrees"
-      ]
+        "90 degrees",
+        0,
+        0,
+        0
+      ],
+      "widgets_values_named": {
+        "reorient_vertices": "90 degrees",
+        "rotate_x": 0,
+        "rotate_y": 0,
+        "rotate_z": 0
+      }
     },
     {
       "id": 32,
       "type": "Trellis2Continue_GGUF",
       "pos": [
-        599.4645440127442,
-        996.2078360721398
+        497.8871200106202,
+        828.5065300601166
       ],
       "size": [
-        225,
-        72.65625
+        215.0572265625,
+        60.546875
       ],
       "flags": {},
       "order": 13,
@@ -392,19 +426,18 @@
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {}
         }
-      },
-      "widgets_values": []
+      }
     },
     {
       "id": 27,
       "type": "Preview3D",
       "pos": [
-        2933.695116117237,
-        397.78718315587986
+        441.09616327644534,
+        1749.377700530957
       ],
       "size": [
-        1379.078125,
-        1365.8125
+        1149.2317708333335,
+        1138.1770833333335
       ],
       "flags": {},
       "order": 24,
@@ -436,38 +469,99 @@
         "cnr_id": "comfy-core",
         "ver": "0.10.0",
         "Node name for S&R": "Preview3D",
-        "Last Time Model File": "F:/test/test02/ComfyUI-Easy-Install/ComfyUI/output/monster_Textured_00005_.glb",
+        "Last Time Model File": "monster_Textured_00006_.glb",
         "Scene Config": {
           "showGrid": true,
           "backgroundColor": "#282828",
           "backgroundImage": "",
-          "backgroundRenderMode": "tiled"
+          "backgroundRenderMode": "tiled",
+          "models": [
+            {
+              "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "quaternion": {
+                "x": 0,
+                "y": 0,
+                "z": 0,
+                "w": 1
+              },
+              "scale": {
+                "x": 1,
+                "y": 1,
+                "z": 1
+              }
+            }
+          ]
         },
         "Camera Config": {
           "cameraType": "perspective",
           "fov": 35,
           "state": {
             "position": {
-              "x": 0.4517749484059408,
-              "y": 3.825189990667583,
-              "z": 10.722659568015853
+              "x": 3.8760657782175576,
+              "y": 1.9380328891087786,
+              "z": 3.876065778217558
             },
             "target": {
-              "x": -0.1572564487385204,
-              "y": 2.220809012695401,
-              "z": -0.024388908556579478
+              "x": 0,
+              "y": 0,
+              "z": 0
             },
             "zoom": 1,
-            "cameraType": "perspective"
+            "cameraType": "perspective",
+            "quaternion": {
+              "x": -0.1562298570518912,
+              "y": 0.3771722397422857,
+              "z": 0.06471252563850326,
+              "w": 0.9105743365364628
+            },
+            "fov": 35,
+            "aspect": 1.077290076335878,
+            "near": 0.01,
+            "far": 10000,
+            "frustum": {
+              "left": -5,
+              "right": 5,
+              "top": 5,
+              "bottom": -5
+            }
           }
         },
         "Light Config": {
-          "intensity": 3
+          "intensity": 3,
+          "hdri": {
+            "enabled": false,
+            "hdriPath": "",
+            "showAsBackground": false,
+            "intensity": 1
+          }
         },
         "Model Config": {
           "upDirection": "original",
           "materialMode": "original",
-          "showSkeleton": false
+          "showSkeleton": false,
+          "gizmo": {
+            "enabled": false,
+            "mode": "translate",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
         },
         "ue_properties": {
           "version": "7.7",
@@ -477,20 +571,24 @@
         "Resource Folder": "test/test02/ComfyUI-Easy-Install/ComfyUI/output"
       },
       "widgets_values": [
-        "F:/test/test02/ComfyUI-Easy-Install/ComfyUI/output/monster_Textured_00005_.glb",
+        "monster_Textured_00006_.glb",
         ""
-      ]
+      ],
+      "widgets_values_named": {
+        "model_file": "monster_Textured_00006_.glb",
+        "image": ""
+      }
     },
     {
       "id": 23,
       "type": "Trellis2MeshWithVoxelToTrimesh_GGUF",
       "pos": [
-        1296.7629813229248,
-        1112.1639662857629
+        1078.9691511024373,
+        925.1366385714691
       ],
       "size": [
-        342.25,
-        83.328125
+        343.1353515625,
+        130
       ],
       "flags": {},
       "order": 18,
@@ -523,19 +621,28 @@
         }
       },
       "widgets_values": [
-        "90 degrees"
-      ]
+        "90 degrees",
+        0,
+        0,
+        0
+      ],
+      "widgets_values_named": {
+        "reorient_vertices": "90 degrees",
+        "rotate_x": 0,
+        "rotate_y": 0,
+        "rotate_z": 0
+      }
     },
     {
       "id": 24,
       "type": "Trellis2ExportMesh_GGUF",
       "pos": [
-        1320.5266540231203,
-        1282.0738525607874
+        1098.7722116859336,
+        1066.728210467323
       ],
       "size": [
-        270,
-        143.328125
+        238.98984375,
+        119.44010416666667
       ],
       "flags": {},
       "order": 19,
@@ -582,18 +689,22 @@
       "widgets_values": [
         "Refined_1024",
         "glb"
-      ]
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "Refined_1024",
+        "file_format": "glb"
+      }
     },
     {
       "id": 33,
       "type": "Trellis2Continue_GGUF",
       "pos": [
-        1788.350024811084,
-        1002.0247025125695
+        1488.6250206759034,
+        833.3539187604747
       ],
       "size": [
-        225,
-        72.65625
+        215.0572265625,
+        60.546875
       ],
       "flags": {},
       "order": 20,
@@ -633,19 +744,18 @@
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {}
         }
-      },
-      "widgets_values": []
+      }
     },
     {
       "id": 13,
       "type": "Trellis2LoadImageWithTransparency_GGUF",
       "pos": [
-        -1384.321450556348,
-        720.2218226724815
+        -1566.451030757461,
+        1496.9936132809862
       ],
       "size": [
-        625.328125,
-        750.328125
+        521.1067708333334,
+        625.2734375
       ],
       "flags": {},
       "order": 0,
@@ -681,20 +791,24 @@
         }
       },
       "widgets_values": [
-        "HS_Search robot_Side_v1.png",
+        "wooden table.jpg",
         "image"
-      ]
+      ],
+      "widgets_values_named": {
+        "image": "wooden table.jpg",
+        "upload": "image"
+      }
     },
     {
       "id": 35,
       "type": "PrimitiveString",
       "pos": [
-        -1354.5716003840744,
-        281.7718667338784
+        -1541.659488947233,
+        1131.618649998817
       ],
       "size": [
-        666.625,
-        84.65625
+        555.5208333333334,
+        70.546875
       ],
       "flags": {},
       "order": 1,
@@ -723,18 +837,21 @@
       },
       "widgets_values": [
         "monster"
-      ]
+      ],
+      "widgets_values_named": {
+        "value": "monster"
+      }
     },
     {
       "id": 36,
       "type": "Trellis2FillHolesWithMeshlib_GGUF",
       "pos": [
-        147.21310634001452,
-        1026.6546731027795
+        121.01092195001212,
+        853.8788942523163
       ],
       "size": [
-        249.25,
-        72.65625
+        303.0083984375,
+        60.546875
       ],
       "flags": {},
       "order": 10,
@@ -769,19 +886,18 @@
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {}
         }
-      },
-      "widgets_values": []
+      }
     },
     {
       "id": 37,
       "type": "Trellis2FillHolesWithMeshlib_GGUF",
       "pos": [
-        1328.0102567648194,
-        939.8604319998742
+        1105.0085473040162,
+        781.5503599998952
       ],
       "size": [
-        249.25,
-        72.65625
+        303.0083984375,
+        60.546875
       ],
       "flags": {},
       "order": 17,
@@ -816,19 +932,18 @@
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {}
         }
-      },
-      "widgets_values": []
+      }
     },
     {
       "id": 41,
       "type": "Trellis2ReconstructMeshWithQuad_GGUF",
       "pos": [
-        66.505755540454,
-        558.7371330899618
+        53.75479628371167,
+        463.94761090830156
       ],
       "size": [
-        355.203125,
-        171.328125
+        348.9595703125,
+        142.7734375
       ],
       "flags": {},
       "order": 8,
@@ -861,21 +976,27 @@
       },
       "widgets_values": [
         1,
-        1024,
+        "512",
         true,
         false
-      ]
+      ],
+      "widgets_values_named": {
+        "remesh_band": 1,
+        "resolution": "512",
+        "remove_floaters": true,
+        "remove_inner_faces": false
+      }
     },
     {
       "id": 17,
       "type": "Trellis2MeshWithVoxelAdvancedGenerator_GGUF",
       "pos": [
-        -608.4419160588199,
-        523.4274090836143
+        -508.70159671568325,
+        434.5228409030119
       ],
       "size": [
-        500.453125,
-        902
+        417.04427083333337,
+        751.6666666666667
       ],
       "flags": {},
       "order": 7,
@@ -943,19 +1064,52 @@
         0,
         0.9,
         true,
+        "euler",
+        "euler",
         "euler"
-      ]
+      ],
+      "widgets_values_named": {
+        "seed": 12345,
+        "control_after_generate": "fixed",
+        "pipeline_type": "1024_cascade",
+        "sparse_structure_steps": 50,
+        "sparse_structure_guidance_strength": 6.5,
+        "sparse_structure_guidance_rescale": 0.2,
+        "sparse_structure_rescale_t": 4,
+        "shape_steps": 50,
+        "shape_guidance_strength": 6.5,
+        "shape_guidance_rescale": 0.2,
+        "shape_rescale_t": 4,
+        "texture_steps": 12,
+        "texture_guidance_strength": 3,
+        "texture_guidance_rescale": 0.2,
+        "texture_rescale_t": 3,
+        "max_num_tokens": 24576,
+        "max_views": 4,
+        "sparse_structure_resolution": 32,
+        "generate_texture_slat": false,
+        "sparse_structure_guidance_interval_start": 0.1,
+        "sparse_structure_guidance_interval_end": 1,
+        "shape_guidance_interval_start": 0.1,
+        "shape_guidance_interval_end": 1,
+        "texture_guidance_interval_start": 0,
+        "texture_guidance_interval_end": 0.9,
+        "use_tiled_decoder": true,
+        "sparse_structure_sampler": "euler",
+        "shape_sampler": "euler",
+        "texture_sampler": "euler"
+      }
     },
     {
       "id": 20,
       "type": "Trellis2MeshRefiner_GGUF",
       "pos": [
-        880.6773425826905,
-        447.63312625066743
+        732.2311188189087,
+        371.36093854222287
       ],
       "size": [
-        313.0625,
-        736.65625
+        280.390625,
+        722
       ],
       "flags": {},
       "order": 14,
@@ -1022,19 +1176,54 @@
         0.9,
         true,
         4,
-        "euler"
-      ]
+        "euler",
+        512,
+        24,
+        false,
+        true,
+        16,
+        2
+      ],
+      "widgets_values_named": {
+        "seed": 12345,
+        "control_after_generate": "fixed",
+        "resolution": 1024,
+        "shape_steps": 25,
+        "shape_guidance_strength": 6.5,
+        "shape_guidance_rescale": 0.2,
+        "shape_rescale_t": 4,
+        "texture_steps": 25,
+        "texture_guidance_strength": 3,
+        "texture_guidance_rescale": 0.2,
+        "texture_rescale_t": 3,
+        "max_num_tokens": 24576,
+        "generate_texture_slat": false,
+        "downsampling": 16,
+        "shape_guidance_interval_start": 0.1,
+        "shape_guidance_interval_end": 1,
+        "texture_guidance_interval_start": 0,
+        "texture_guidance_interval_end": 0.9,
+        "use_tiled_decoder": true,
+        "max_views": 4,
+        "use_tiled_encoder": "euler",
+        "encoder_tile_size": 512,
+        "encoder_overlap": 24,
+        "use_tiled_decoder_for_texture": false,
+        "use_tiled_upsample": true,
+        "upsample_tile_size": 16,
+        "upsample_overlap": 2
+      }
     },
     {
       "id": 42,
       "type": "Trellis2ReconstructMeshWithQuad_GGUF",
       "pos": [
-        1269.465800140674,
-        472.49729118139254
+        1056.2215001172283,
+        392.0810759844938
       ],
       "size": [
-        355.203125,
-        171.328125
+        348.9595703125,
+        142.7734375
       ],
       "flags": {},
       "order": 15,
@@ -1067,21 +1256,27 @@
       },
       "widgets_values": [
         1,
-        1024,
+        "512",
         true,
         false
-      ]
+      ],
+      "widgets_values_named": {
+        "remesh_band": 1,
+        "resolution": "512",
+        "remove_floaters": true,
+        "remove_inner_faces": false
+      }
     },
     {
       "id": 28,
       "type": "StringConcatenate",
       "pos": [
-        2533.4369845889164,
-        917.9624502054405
+        2109.5308204907637,
+        763.3020418378671
       ],
       "size": [
-        252,
-        239.328125
+        210,
+        199.44010416666669
       ],
       "flags": {},
       "order": 6,
@@ -1119,18 +1314,23 @@
         "",
         "Textured",
         "_"
-      ]
+      ],
+      "widgets_values_named": {
+        "string_a": "",
+        "string_b": "Textured",
+        "delimiter": "_"
+      }
     },
     {
       "id": 43,
       "type": "Trellis2SmoothNormals_GGUF",
       "pos": [
-        2546.3460322122073,
-        618.5773995331383
+        2120.2883601768394,
+        513.8144996109486
       ],
       "size": [
-        225,
-        48.65625
+        265.65,
+        40.546875
       ],
       "flags": {},
       "order": 22,
@@ -1160,19 +1360,18 @@
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {}
         }
-      },
-      "widgets_values": []
+      }
     },
     {
       "id": 26,
       "type": "Trellis2ExportMesh_GGUF",
       "pos": [
-        2531.319061709278,
-        712.8972656571007
+        2107.765884757732,
+        592.4143880475839
       ],
       "size": [
-        270,
-        143.328125
+        238.98984375,
+        119.44010416666667
       ],
       "flags": {},
       "order": 23,
@@ -1219,18 +1418,22 @@
       "widgets_values": [
         "Textured",
         "glb"
-      ]
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "Textured",
+        "file_format": "glb"
+      }
     },
     {
       "id": 25,
       "type": "Trellis2MeshTexturing_GGUF",
       "pos": [
-        2099.3027031411625,
-        658.9581559573935
+        1747.7522526176356,
+        547.4651299644946
       ],
       "size": [
-        359.125,
-        639.328125
+        359.15234375,
+        650
       ],
       "flags": {},
       "order": 21,
@@ -1289,7 +1492,7 @@
         0.2,
         3,
         1024,
-        4096,
+        2048,
         "OPAQUE",
         false,
         0,
@@ -1298,7 +1501,7 @@
         false,
         false,
         "Xatlas",
-        60.0,
+        60.5,
         false,
         512,
         24,
@@ -1306,18 +1509,44 @@
         120,
         48,
         "euler"
-      ]
+      ],
+      "widgets_values_named": {
+        "seed": 12345,
+        "control_after_generate": "fixed",
+        "texture_steps": 25,
+        "texture_guidance_strength": 3,
+        "texture_guidance_rescale": 0.2,
+        "texture_rescale_t": 3,
+        "resolution": 1024,
+        "texture_size": 2048,
+        "texture_alpha_mode": "OPAQUE",
+        "double_side_material": false,
+        "texture_guidance_interval_start": 0,
+        "texture_guidance_interval_end": 0.9,
+        "max_views": 4,
+        "bake_on_vertices": false,
+        "use_custom_normals": false,
+        "uv_unwrap_method": "Xatlas",
+        "mesh_cluster_threshold_cone_half_angle_rad": 60.5,
+        "use_tiled_encoder": false,
+        "encoder_tile_size": 512,
+        "encoder_overlap": 24,
+        "use_tiled_decoder_for_texture": false,
+        "decoder_tile_size": 120,
+        "decoder_overlap": 48,
+        "sampler": "euler"
+      }
     },
     {
       "id": 44,
       "type": "Trellis2LoadModel_GGUF",
       "pos": [
-        -599.62373942273,
-        223.93478592530764
+        -501.3531161856083,
+        184.94565493775636
       ],
       "size": [
-        514.765625,
-        243.328125
+        428.9713541666667,
+        202.7734375
       ],
       "flags": {},
       "order": 2,
@@ -1351,7 +1580,15 @@
         "cuda",
         true,
         false
-      ]
+      ],
+      "widgets_values_named": {
+        "modelname": "TRELLIS.2-4B",
+        "model_format": "GGUF Q4_K_M",
+        "backend": "flash_attn",
+        "device": "cuda",
+        "low_vram": true,
+        "keep_models_loaded": false
+      }
     }
   ],
   "links": [
@@ -1617,52 +1854,48 @@
       "id": 1,
       "title": "Name and Picture",
       "bounding": [
-        -1413.6548925287668,
-        136.1333266417577,
-        774.4499999999999,
-        1453.204130530749
+        -1590.8955657344768,
+        1010.2531999220503,
+        645.375,
+        1211.0034421089574
       ],
       "color": "#3f789e",
-      "font_size": 24,
       "flags": {}
     },
     {
       "id": 2,
       "title": "Mesh Generation",
       "bounding": [
-        -623.9952559817315,
-        139.2984516276685,
-        1190.2187104413028,
-        1554.5156870462351
+        -521.6627133181096,
+        114.41537635639042,
+        991.8489253677524,
+        1295.429739205196
       ],
       "color": "#b58b2a",
-      "font_size": 24,
       "flags": {}
     },
     {
       "id": 3,
       "title": "Refiner",
       "bounding": [
-        845.4940923829989,
-        336.64176515329564,
-        890.7170447301953,
-        1179.2182832256206
+        702.9117436524991,
+        278.86813762774636,
+        742.2642039418295,
+        982.6819026880172
       ],
       "color": "#b06634",
-      "font_size": 24,
       "flags": {}
     },
     {
       "id": 4,
       "title": "Texturing",
       "bounding": [
-        2071.552422347679,
-        542.496689672765,
-        740.5634935364355,
-        812.9943889558805
+        1724.627018623066,
+        450.41390806063754,
+        617.1362446136964,
+        677.4953241299004
       ],
       "color": "#a1309b",
-      "font_size": 24,
       "flags": {}
     }
   ],
@@ -1670,15 +1903,15 @@
   "extra": {
     "ue_links": [],
     "ds": {
-      "scale": 0.8264462809917358,
+      "scale": 0.3186308177103568,
       "offset": [
-        1907.505372059948,
-        363.64644379683483
+        4039.742517225054,
+        -200.32060605169153
       ]
     },
-    "workflowRendererVersion": "Vue",
+    "workflowRendererVersion": "Vue-corrected",
     "links_added_by_ue": [],
-    "frontendVersion": "1.39.19",
+    "frontendVersion": "1.53.6",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,

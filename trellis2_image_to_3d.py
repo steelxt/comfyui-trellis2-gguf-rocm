@@ -746,6 +746,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
     
     def unload_sparse_structure_model(self):
         if self.models['sparse_structure_flow_model'] is not None:
+            if torch.cuda.is_available(): torch.cuda.synchronize()
             del self.models['sparse_structure_flow_model']
             self.models['sparse_structure_flow_model'] = None            
             
@@ -786,6 +787,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
             
     def unload_shape_slat_flow_model_512(self):
         if self.models['shape_slat_flow_model_512'] is not None:
+            if torch.cuda.is_available(): torch.cuda.synchronize()
             del self.models['shape_slat_flow_model_512']
             self.models['shape_slat_flow_model_512'] = None
             self._cleanup_cuda()
@@ -830,6 +832,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
 
     def unload_tex_slat_decoder(self):
         if self.models['tex_slat_decoder'] is not None:
+            if torch.cuda.is_available(): torch.cuda.synchronize()
             del self.models['tex_slat_decoder']
             self.models['tex_slat_decoder'] = None
             self._cleanup_cuda()
@@ -849,6 +852,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
 
     def unload_shape_slat_decoder(self):
         if self.models['shape_slat_decoder'] is not None:
+            if torch.cuda.is_available(): torch.cuda.synchronize()
             del self.models['shape_slat_decoder']
             self.models['shape_slat_decoder'] = None
             self._cleanup_cuda()
@@ -872,6 +876,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
 
     def unload_shape_slat_flow_model_1024(self):
         if self.models['shape_slat_flow_model_1024'] is not None:
+            if torch.cuda.is_available(): torch.cuda.synchronize()
             del self.models['shape_slat_flow_model_1024']
             self.models['shape_slat_flow_model_1024'] = None
             self._cleanup_cuda()
@@ -895,6 +900,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
 
     def unload_tex_slat_flow_model_1024(self):
         if self.models['tex_slat_flow_model_1024'] is not None:
+            if torch.cuda.is_available(): torch.cuda.synchronize()
             del self.models['tex_slat_flow_model_1024']
             self.models['tex_slat_flow_model_1024'] = None
             self._cleanup_cuda()
@@ -910,6 +916,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
 
     def unload_shape_slat_encoder(self):
         if self.models['shape_slat_encoder'] is not None:
+            if torch.cuda.is_available(): torch.cuda.synchronize()
             del self.models['shape_slat_encoder']
             self.models['shape_slat_encoder'] = None
             self._cleanup_cuda()      
@@ -3171,19 +3178,36 @@ class Trellis2ImageTo3DPipeline(Pipeline):
             return (textured_mesh, placeholder_texture, placeholder_texture,)
                 
         # rasterize
-        print('Finalizing mesh ...')
+        print('Finalizing mesh ...', flush=True)
+        print('[DEBUG 1] Initializing RasterizeGLContext...', flush=True)
         ctx = dr.RasterizeGLContext()
-        uvs_torch = torch.cat([uvs_torch * 2 - 1, torch.zeros_like(uvs_torch[:, :1]), torch.ones_like(uvs_torch[:, :1])], dim=-1).unsqueeze(0)
-        rast, _ = dr.rasterize(
-            ctx, uvs_torch, faces_torch,
-            resolution=[texture_size, texture_size],
-        )
+        print('[DEBUG 2] RasterizeGLContext initialized successfully.', flush=True)
         
+        uvs_torch = torch.cat([uvs_torch * 2 - 1, torch.zeros_like(uvs_torch[:, :1]), torch.ones_like(uvs_torch[:, :1])], dim=-1).unsqueeze(0)
+        faces_torch_int32 = faces_torch.to(torch.int32).contiguous()
+        rast = torch.zeros((1, texture_size, texture_size, 4), device=vertices_torch.device, dtype=torch.float32)
+        
+        chunk_size = 50000
+        print(f'[DEBUG 3] Rasterizing {faces_torch_int32.shape[0]} faces in chunks of {chunk_size}...', flush=True)
+        for i in range(0, faces_torch_int32.shape[0], chunk_size):
+            print(f'  [DEBUG 3.{i}] Chunk {i}..{min(i+chunk_size, faces_torch_int32.shape[0])}...', flush=True)
+            rast_chunk, _ = dr.rasterize(
+                ctx, uvs_torch, faces_torch_int32[i:i+chunk_size],
+                resolution=[texture_size, texture_size],
+            )
+            mask_chunk = rast_chunk[..., 3:4] > 0
+            rast_chunk[..., 3:4] += i
+            rast = torch.where(mask_chunk, rast_chunk, rast)
+            
+        print('[DEBUG 4] Synchronizing CUDA after rasterize...', flush=True)
         torch.cuda.synchronize()
         
         mask = rast[0, ..., 3] > 0
-        pos = dr.interpolate(vertices_torch.unsqueeze(0), rast, faces_torch)[0][0]
+        valid_count = mask.sum().item()
+        print(f'[DEBUG 5] Interpolating {valid_count} valid pixels...', flush=True)
+        pos = dr.interpolate(vertices_torch.unsqueeze(0), rast, faces_torch_int32)[0][0]
         
+        print(f'[DEBUG 6] Grid sample 3d (coords: {pbr_voxel.coords.shape}, feats: {pbr_voxel.feats.shape})...', flush=True)
         attrs = torch.zeros(texture_size, texture_size, pbr_voxel.shape[1], device=self.device)
         attrs[mask] = flex_gemm.ops.grid_sample.grid_sample_3d(
             pbr_voxel.feats,
@@ -3193,14 +3217,17 @@ class Trellis2ImageTo3DPipeline(Pipeline):
             mode='trilinear',
         ).float()
         
+        print('[DEBUG 7] Synchronizing CUDA after grid_sample_3d...', flush=True)
         torch.cuda.synchronize()
         
         # construct mesh
+        print('[DEBUG 8] Constructing mesh textures...', flush=True)
         mask = mask.cpu().numpy()
-        base_color = np.clip(attrs[..., self.pbr_attr_layout['base_color']].cpu().numpy() * 255, 0, 255).astype(np.uint8)
-        metallic = np.clip(attrs[..., self.pbr_attr_layout['metallic']].cpu().numpy() * 255, 0, 255).astype(np.uint8)
-        roughness = np.clip(attrs[..., self.pbr_attr_layout['roughness']].cpu().numpy() * 255, 0, 255).astype(np.uint8)
-        alpha = np.clip(attrs[..., self.pbr_attr_layout['alpha']].cpu().numpy() * 255, 0, 255).astype(np.uint8)
+        attrs_np = np.nan_to_num(attrs.cpu().numpy(), nan=0.0, posinf=1.0, neginf=0.0)
+        base_color = np.clip(attrs_np[..., self.pbr_attr_layout['base_color']] * 255, 0, 255).astype(np.uint8)
+        metallic = np.clip(attrs_np[..., self.pbr_attr_layout['metallic']] * 255, 0, 255).astype(np.uint8)
+        roughness = np.clip(attrs_np[..., self.pbr_attr_layout['roughness']] * 255, 0, 255).astype(np.uint8)
+        alpha = np.clip(attrs_np[..., self.pbr_attr_layout['alpha']] * 255, 0, 255).astype(np.uint8)
         
         # extend
         if inpainting == 'telea':
@@ -3208,12 +3235,14 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         else:
             inpainting_algo = cv2.INPAINT_NS
             
+        print('[DEBUG 9] OpenCV Inpainting...', flush=True)
         mask = (~mask).astype(np.uint8)
         base_color = cv2.inpaint(base_color, mask, 3, inpainting_algo)
         metallic = cv2.inpaint(metallic, mask, 1, inpainting_algo)[..., None]
         roughness = cv2.inpaint(roughness, mask, 1, inpainting_algo)[..., None]
         alpha = cv2.inpaint(alpha, mask, 1, inpainting_algo)[..., None]
         
+        print('[DEBUG 10] Building PBRMaterial...', flush=True)
         baseColorTexture = Image.fromarray(np.concatenate([base_color, alpha], axis=-1))
         metallicRoughnessTexture = Image.fromarray(np.concatenate([np.zeros_like(metallic), roughness, metallic], axis=-1))
         
@@ -3227,6 +3256,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
             doubleSided=True,
         )
 
+        print('[DEBUG 11] Building Trimesh object...', flush=True)
         # Swap Y and Z axes, invert Y (common conversion for GLB compatibility)
         vertices[:, 1], vertices[:, 2] = vertices[:, 2], -vertices[:, 1]
         normals[:, 1], normals[:, 2] = normals[:, 2], -normals[:, 1]
@@ -3248,6 +3278,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
                 visual=trimesh.visual.TextureVisuals(uv=uvs, material=material)
             )
             
+        print('[DEBUG 12] Finalizing mesh complete!', flush=True)
         return textured_mesh, baseColorTexture, metallicRoughnessTexture
 
     @torch.no_grad()

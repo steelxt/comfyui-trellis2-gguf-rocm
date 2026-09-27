@@ -1106,7 +1106,7 @@ struct GLContext { EGLDisplay display; EGLContext context; int extInitialized; }
 #undef GL_ARB_framebuffer_object
 #undef GL_ARB_vertex_array_object
 #undef GL_ARB_multi_draw_indirect
-#define GLUTIL_EXT(return_type, name, ...) extern return_type (GLAPIENTRY* name)(__VA_ARGS__);
+#define GLUTIL_EXT(return_type, name, ...) extern return_type (GLAPIENTRY* pfn_##name)(__VA_ARGS__); [[maybe_unused]] static auto& name = pfn_##name;
 #include "glutil_extlist.h"
 #undef GLUTIL_EXT
 void setGLContext(GLContext& glctx);
@@ -1123,7 +1123,7 @@ cat > "${NVDR_GL}/common/glutil.cpp" << 'GLUTILCPPEOF'
 #include <iostream>
 #include <iomanip>
 #include <cstring>
-#define GLUTIL_EXT(return_type, name, ...) return_type (GLAPIENTRY* name)(__VA_ARGS__) = 0;
+#define GLUTIL_EXT(return_type, name, ...) return_type (GLAPIENTRY* pfn_##name)(__VA_ARGS__) = 0;
 #include "glutil_extlist.h"
 #undef GLUTIL_EXT
 static volatile bool s_glExtInitialized = false;
@@ -1163,7 +1163,7 @@ static void initializeGLExtensions(void)
     pthread_mutex_lock(&s_getProcAddressMutex);
     if (!s_glExtInitialized)
     {
-#define GLUTIL_EXT(return_type, name, ...) safeGetProcAddress(#name, (PROCFN*)&name);
+#define GLUTIL_EXT(return_type, name, ...) safeGetProcAddress(#name, (PROCFN*)&pfn_##name);
 #include "glutil_extlist.h"
 #undef GLUTIL_EXT
         s_glExtInitialized = true;
@@ -1215,11 +1215,27 @@ GLContext createGLContext(int cudaDeviceIdx)
         display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
         LOG(INFO) << "EGL: using default display";
     }
+    if (display == EGL_NO_DISPLAY && pGetPlatformDisplay)
+    {
+        display = pGetPlatformDisplay(0x31DD, EGL_DEFAULT_DISPLAY, NULL);
+        LOG(INFO) << "EGL: falling back to surfaceless platform";
+    }
     if (display == EGL_NO_DISPLAY)
         LOG(FATAL) << "eglGetDisplay() failed";
-    EGLint major, minor;
+    EGLint major = 0, minor = 0;
     if (!eglInitialize(display, &major, &minor))
-        LOG(FATAL) << "eglInitialize() failed";
+    {
+        if (pGetPlatformDisplay)
+        {
+            display = pGetPlatformDisplay(0x31DD, EGL_DEFAULT_DISPLAY, NULL);
+            if (!display || !eglInitialize(display, &major, &minor))
+                LOG(FATAL) << "eglInitialize() failed";
+        }
+        else
+        {
+            LOG(FATAL) << "eglInitialize() failed";
+        }
+    }
     LOG(INFO) << "EGL version: " << major << "." << minor;
     if (!eglBindAPI(EGL_OPENGL_API))
         LOG(FATAL) << "eglBindAPI(EGL_OPENGL_API) failed - desktop OpenGL not supported?";

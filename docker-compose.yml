@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        - BASE_IMAGE=rocm/pytorch:latest
+        - BASE_IMAGE=rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0
         - GPU_ARCH=gfx1200
     image: comfyui-trellis2-gguf-rocm:latest
     container_name: comfyui-trellis
@@ -21,8 +21,10 @@ services:
       - "/dev/dri:/dev/dri"
     group_add:
       - video
-      - render
+      - "984"
+      - "988"
     environment:
+      - PYTHONUNBUFFERED=1
       # Use only the discrete GPU (deviceId 0, gfx1200). Avoid deviceId 1 (gfx1036, integrated).
       - HIP_VISIBLE_DEVICES=0
       - TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1
@@ -46,3 +48,4 @@ services:
       # Mount scripts for instant updates during development/testing
       - ./entrypoint.sh:/app/entrypoint.sh
       - ./trellis2-gguf-model-downloader.sh:/app/trellis2-gguf-model-downloader.sh
+      - ./trellis2_image_to_3d.py:/app/ComfyUI/custom_nodes/ComfyUI-Trellis2-GGUF/trellis2_gguf/pipelines/trellis2_image_to_3d.py

@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libsparsehash-dev \
     python3-dev \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
@@ -39,7 +40,10 @@ WORKDIR /app
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
 
 # Install ComfyUI python dependencies
-RUN pip install --no-cache-dir -r /app/ComfyUI/requirements.txt
+RUN python3 -m pip install --upgrade pip && \
+    pip install --no-cache-dir -r /app/ComfyUI/requirements.txt ninja && \
+    ln -sf /opt/venv/bin/ninja /usr/bin/ninja && \
+    ln -sf /opt/venv/bin/ninja /usr/local/bin/ninja
 
 # Copy our repository files (helper scripts, json files, entrypoint) to /app
 COPY . /app/
